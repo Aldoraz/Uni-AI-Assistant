@@ -1,12 +1,13 @@
 from pathlib import Path
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
+from embedding.provider import EmbeddingProvider
 from config import INDEX_PATH
 
 class VectorStore:
-    def __init__(self, embedding_model: Embeddings):
-        self.embedding_model = embedding_model
+    def __init__(self, embedding_provider: EmbeddingProvider):
+        self.embedding_provider = embedding_provider
+        self.embedding_model = embedding_provider.model
         
         if Path(INDEX_PATH).exists():
             self.db = FAISS.load_local(
@@ -14,6 +15,7 @@ class VectorStore:
                 self.embedding_model,
                 allow_dangerous_deserialization=True
             )
+            print(f"Loaded {self.db.index.ntotal} vectors.")
         else:
             self.db = None
             
@@ -40,7 +42,10 @@ class VectorStore:
         return len(chunks)
 
 
-    def search(self, embedding: list[float], k: int) -> list[Document]:
+    def search(self, query: str, k: int) -> list[tuple[Document, float]]:
         if self.db is None:
             raise ValueError("Vector store is not initialized")
-        return self.db.similarity_search_by_vector(embedding, k=k)
+        
+        embedding = self.embedding_provider.embed_query(query)
+        
+        return self.db.similarity_search_with_score_by_vector(embedding, k)

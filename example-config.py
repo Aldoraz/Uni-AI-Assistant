@@ -32,3 +32,6 @@ INDEX_PATH = DATA_DIR / "index"
 # Chunking parameters for document splitting
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
+
+# How many relevant chunks to return in rag context search
+RAG_TOP_K = 5

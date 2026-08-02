@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from rag.vector_store import VectorStore
 from config import CHUNK_SIZE, CHUNK_OVERLAP
 
 @dataclass
@@ -18,7 +19,7 @@ class IndexingResult:
     vectors_stored: int = 0
 
 class Indexer:
-    def __init__(self, embedding_provider, vector_store):
+    def __init__(self, embedding_provider, vector_store: VectorStore):
         self.result = IndexingResult()
         self.loader = DocumentLoader(self.result)
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
@@ -87,7 +88,7 @@ class DocumentLoader:
     
     def _load_pdf(self, file: Path) -> list[Document]:
         print(f"Loading PDF document: {file.name}")
-        
+        # TODO: Visual Search
         try:
             documents = PyPDFLoader(str(file)).load()
             
@@ -115,21 +116,3 @@ class DocumentLoader:
                 }
             )
         ]
-        
-        
-from config import DOCUMENTS_PATH, EMBEDDING_MODEL
-from embedding.openai import OpenAIEmbeddingProvider
-from rag.vector_store import VectorStore
-
-if __name__ == "__main__":
-
-    embedding_provider = OpenAIEmbeddingProvider(
-        model=EMBEDDING_MODEL
-    )
-    
-    indexer = Indexer(
-        embedding_provider=embedding_provider,
-        vector_store=VectorStore(embedding_model = embedding_provider.model)
-    )
-
-    indexer.index_folder(DOCUMENTS_PATH)
