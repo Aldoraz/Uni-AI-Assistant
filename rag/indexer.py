@@ -18,21 +18,27 @@ class IndexingResult:
     vectors_stored: int = 0
 
 class Indexer:
-    def __init__(self, embedding_provider):
+    def __init__(self, embedding_provider, vector_store):
         self.result = IndexingResult()
         self.loader = DocumentLoader(self.result)
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
         self.embedding_provider = embedding_provider
+        self.vector_store = vector_store
 
     def index_folder(self, folder: Path) -> None:
+        # TODO: Incremental indexing
+        
         # Recursively find and turn all files into langchain Documents
         documents = self.loader.load_documents(folder)
         
+        # Split documents into chunks with certain overlap
         chunks = self._chunk_documents(documents)
         
+        # Turn chunks into embeddings (vectors)
         embeddings = self._embed_chunks(chunks)
         
-        self._store_embeddings(chunks, embeddings)
+        # Store chunks (data) and embeddings (vectors)
+        self.result.vectors_stored = self.vector_store.store(chunks, embeddings)
         
         print(self.result)
         
@@ -47,9 +53,6 @@ class Indexer:
         )
         self.result.embeddings_generated = len(vectors)
         return vectors
-
-    def _store_embeddings(self, chunks: list[Document], embeddings: list[list[float]]) -> None:
-        ... # TODO: implement
         
 class DocumentLoader:
     def __init__(self, result: IndexingResult):
@@ -116,15 +119,17 @@ class DocumentLoader:
         
 from config import DOCUMENTS_PATH, EMBEDDING_MODEL
 from embedding.openai import OpenAIEmbeddingProvider
+from rag.vector_store import VectorStore
 
 if __name__ == "__main__":
 
     embedding_provider = OpenAIEmbeddingProvider(
         model=EMBEDDING_MODEL
     )
-
+    
     indexer = Indexer(
-        embedding_provider=embedding_provider
+        embedding_provider=embedding_provider,
+        vector_store=VectorStore(embedding_model = embedding_provider.model)
     )
 
     indexer.index_folder(DOCUMENTS_PATH)

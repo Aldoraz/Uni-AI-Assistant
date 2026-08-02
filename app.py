@@ -6,6 +6,7 @@ from llm.ollama import OllamaChatProvider
 from embedding.openai import OpenAIEmbeddingProvider
 from embedding.ollama import OllamaEmbeddingProvider
 from rag.indexer import Indexer
+from rag.vector_store import VectorStore
 from config import CHAT_PROVIDER, CHAT_MODEL, EMBEDDING_PROVIDER, EMBEDDING_MODEL
 
 def create_providers():
@@ -36,7 +37,12 @@ def main():
         llm=llm,
         history=history
     )
-    indexer = Indexer(embedding_provider=embedding_provider)
+    vector_store = VectorStore(embedding_model=embedding_provider.model) 
+    indexer = Indexer(
+        embedding_provider=embedding_provider,
+        vector_store=vector_store
+    )
+    # retriever = Retriever(vector_store=vector_store)
 
     st.title("Learning AI Assistant")
     for message in history.get_messages():
