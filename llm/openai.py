@@ -1,15 +1,13 @@
 from collections.abc import Iterator
-
-from dotenv import load_dotenv
 from langchain_openai.chat_models import ChatOpenAI
-
 from context.entities import Message
 from llm.provider import LLMProvider
-
+from dotenv import load_dotenv
+from config import CHAT_MODEL
 
 class OpenAIProvider(LLMProvider):
 
-    def __init__(self, model: str = "gpt-4.1"):
+    def __init__(self, model: str = CHAT_MODEL):
         load_dotenv()
 
         self.model = ChatOpenAI(model=model)

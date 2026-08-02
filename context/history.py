@@ -1,5 +1,5 @@
-from context.entities import Message
 import streamlit as st
+from context.entities import Message
 
 class HistoryManager:
     def __init__(self):

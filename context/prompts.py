@@ -1,5 +1,5 @@
-from context.entities import Message
 import datetime
+from context.entities import Message
 
 SYSTEM_MESSAGE_MAIN = Message(
     role="system",

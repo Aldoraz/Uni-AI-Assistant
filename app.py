@@ -1,7 +1,7 @@
+import streamlit as st
 from assistant.assistant import Assistant
 from context.history import HistoryManager
 from llm.openai import OpenAIProvider
-import streamlit as st
 
 def main():
     llm = OpenAIProvider()
@@ -22,7 +22,7 @@ def main():
             st.markdown(prompt)
         
         with st.chat_message("assistant"):
-            response = st.write_stream(
+            st.write_stream(
                 assistant.stream_chat(prompt)
             )
 
