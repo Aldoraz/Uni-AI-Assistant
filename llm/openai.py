@@ -3,11 +3,11 @@ from langchain_openai.chat_models import ChatOpenAI
 from context.entities import Message
 from llm.provider import LLMProvider
 from dotenv import load_dotenv
-from config import CHAT_MODEL
 
-class OpenAIProvider(LLMProvider):
 
-    def __init__(self, model: str = CHAT_MODEL):
+class OpenAIChatProvider(LLMProvider):
+
+    def __init__(self, model):
         load_dotenv()
 
         self.model = ChatOpenAI(model=model)

@@ -18,11 +18,12 @@ class IndexingResult:
     vectors_stored: int = 0
 
 class Indexer:
-    def __init__(self):
+    def __init__(self, embedding_provider):
         self.result = IndexingResult()
         self.loader = DocumentLoader(self.result)
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
-        
+        self.embedding_provider = embedding_provider
+
     def index_folder(self, folder: Path) -> None:
         # Recursively find and turn all files into langchain Documents
         documents = self.loader.load_documents(folder)
@@ -31,7 +32,7 @@ class Indexer:
         
         embeddings = self._embed_chunks(chunks)
         
-        self._store_embeddings(embeddings)
+        self._store_embeddings(chunks, embeddings)
         
         print(self.result)
         
@@ -40,10 +41,14 @@ class Indexer:
         self.result.chunks_generated = len(chunks)
         return chunks
 
-    def _embed_chunks(self, chunks: list[Document]) -> list[dict]:
-        ... # TODO: implement
-        
-    def _store_embeddings(self, embeddings: list[dict]) -> None:
+    def _embed_chunks(self, chunks: list[Document]) -> list[list[float]]:
+        vectors = self.embedding_provider.embed_documents(
+            [chunk.page_content for chunk in chunks]
+        )
+        self.result.embeddings_generated = len(vectors)
+        return vectors
+
+    def _store_embeddings(self, chunks: list[Document], embeddings: list[list[float]]) -> None:
         ... # TODO: implement
         
 class DocumentLoader:
@@ -107,13 +112,19 @@ class DocumentLoader:
                 }
             )
         ]
-    
-    
-    
-from config import DOCUMENTS_PATH
+        
+        
+from config import DOCUMENTS_PATH, EMBEDDING_MODEL
+from embedding.openai import OpenAIEmbeddingProvider
+
 if __name__ == "__main__":
-    indexer = Indexer()
+
+    embedding_provider = OpenAIEmbeddingProvider(
+        model=EMBEDDING_MODEL
+    )
+
+    indexer = Indexer(
+        embedding_provider=embedding_provider
+    )
+
     indexer.index_folder(DOCUMENTS_PATH)
-        
-        
-        
