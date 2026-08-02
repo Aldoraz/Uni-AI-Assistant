@@ -4,7 +4,7 @@ from pathlib import Path
 
 CHAT_MODEL = "gpt-4.1"
 
-# ---------- Data ----------
+# ---------- RAG ----------
 
 DATA_DIR = Path("data")
 
@@ -15,3 +15,6 @@ DOCUMENTS_PATH = DATA_DIR / "documents"
 #DOCUMENTS_PATH = Path("C:/path/to/your/documents")
 
 INDEX_PATH = DATA_DIR / "index"
+
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
