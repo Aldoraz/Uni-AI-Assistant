@@ -2,6 +2,7 @@ from context.history import HistoryManager
 from llm.provider import LLMProvider
 from context.entities import Message
 from collections.abc import Iterator
+from context.prompts import SYSTEM_MESSAGE_MAIN
 
 
 class Assistant:
@@ -24,7 +25,9 @@ class Assistant:
             Message(role="user", content=prompt)
         )
         
-        stream = self.llm.stream_chat(self.history.get_messages())
+        stream = self.llm.stream_chat(
+            [SYSTEM_MESSAGE_MAIN], *self.history.get_messages()
+        )
         completion = ""
         
         for chunk in stream:
