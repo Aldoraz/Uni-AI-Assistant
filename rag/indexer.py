@@ -2,6 +2,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from config import CHUNK_SIZE, CHUNK_OVERLAP
 
 @dataclass
 class IndexingResult:
@@ -19,6 +21,7 @@ class Indexer:
     def __init__(self):
         self.result = IndexingResult()
         self.loader = DocumentLoader(self.result)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
         
     def index_folder(self, folder: Path) -> None:
         # Recursively find and turn all files into langchain Documents
@@ -33,7 +36,9 @@ class Indexer:
         print(self.result)
         
     def _chunk_documents(self, documents: list[Document]) -> list[Document]:
-        ... # TODO: implement
+        chunks = self.splitter.split_documents(documents)
+        self.result.chunks_generated = len(chunks)
+        return chunks
 
     def _embed_chunks(self, chunks: list[Document]) -> list[dict]:
         ... # TODO: implement
