@@ -38,7 +38,7 @@ def main():
     indexer = Indexer(
         embedding_provider=embedding_provider,
         vector_store=vector_store)
-    retriever = Retriever(vector_store=vector_store)
+    retriever = Retriever(vector_store=vector_store, llm=llm)
     assistant = Assistant(
         llm=llm,
         history=history,

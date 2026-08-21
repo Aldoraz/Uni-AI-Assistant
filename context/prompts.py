@@ -11,3 +11,10 @@ Your goals are:
 - Be honest about uncertainty.
 - Cite uploaded sources when available.
 """
+
+SYSTEM_PROMPT_REWRITE = """Rewrite the user's latest message as one concise, standalone search query for document retrieval.
+Use the conversation history to resolve references and omitted context.
+Preserve all relevant names, terminology, and constraints from the user.
+Do not answer the question and do not add facts that are not present in the conversation.
+Return only the rewritten search query, with no explanation, label, quotation marks, or formatting.
+"""

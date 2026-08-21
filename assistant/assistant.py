@@ -20,11 +20,13 @@ class Assistant:
 
     # For streaming responses to the UI
     def stream_chat(self, prompt: str) -> Iterator[str]:
+        history = self.history.get_messages()
+        documents = self.retriever.retrieve(prompt, history)
+
         self.history.add_message(
             Message(role="user", content=prompt)
         )
-        
-        documents = self.retriever.retrieve(prompt)
+
         messages = [
             Message(role="system", content=SYSTEM_PROMPT_MAIN),
             Message(role="system", content=self._format_context(documents)),
