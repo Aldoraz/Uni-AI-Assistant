@@ -3,12 +3,12 @@ from pathlib import Path
 import sqlite3
 
 class ConversationManager:
-    def __init__(self, database_path: Path | None = None):
-        if database_path is None:
-            database_path = Path("data") / "dbs" / "conversations.db"
-        database_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, conversations_db_path: Path | None = None):
+        if conversations_db_path is None:
+            conversations_db_path = Path("data") / "dbs" / "conversations.db"
+        conversations_db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.conn = sqlite3.connect(database_path)
+        self.conn = sqlite3.connect(conversations_db_path)
 
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS conversations (

@@ -57,8 +57,8 @@ class VectorStoreTests(unittest.TestCase):
         store.embedding_model = provider.model
         store.db = None
         documents = [
-            Document(page_content="one", metadata={"file": "a"}),
-            Document(page_content="two", metadata={"file": "b"}),
+            Document(page_content="one", metadata={"file": "a", "chunk_id": "a::0"}),
+            Document(page_content="two", metadata={"file": "b", "chunk_id": "b::0"}),
         ]
         database = Mock()
         faiss.from_embeddings.return_value = database
@@ -69,11 +69,37 @@ class VectorStoreTests(unittest.TestCase):
         faiss.from_embeddings.assert_called_once_with(
             text_embeddings=[("one", [1.0]), ("two", [2.0])],
             embedding=provider.model,
-            metadatas=[{"file": "a"}, {"file": "b"}],
+            metadatas=[
+                {"file": "a", "chunk_id": "a::0"},
+                {"file": "b", "chunk_id": "b::0"},
+            ],
+            ids=["a::0", "b::0"],
         )
         database.save_local.assert_called_once_with("index-path")
         self.assertEqual(count, 2)
         self.assertIs(store.db, database)
+
+    def test_store_with_no_chunks_is_a_no_op(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = None
+
+        self.assertEqual(store.store([], []), 0)
+        self.assertIsNone(store.db)
+
+    def test_delete_with_no_ids_is_a_no_op(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = None
+
+        store.delete_by_ids([])
+
+        self.assertIsNone(store.db)
+
+    def test_delete_requires_initialized_database_for_nonempty_ids(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = None
+
+        with self.assertRaisesRegex(ValueError, "not initialized"):
+            store.delete_by_ids(["a::0"])
 
     def test_search_requires_initialized_database(self):
         store = VectorStore.__new__(VectorStore)

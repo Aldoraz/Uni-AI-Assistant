@@ -1,10 +1,14 @@
+import hashlib
+import json
 from pathlib import Path
 from dataclasses import dataclass
+import sqlite3
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from embedding.provider import EmbeddingProvider
 from rag.vector_store import VectorStore
-from config import CHUNK_SIZE, CHUNK_OVERLAP
+from config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_PROVIDER, EMBEDDING_MODEL
 
 @dataclass
 class IndexingResult:
@@ -12,49 +16,113 @@ class IndexingResult:
     files_loaded: int = 0
     files_skipped: int = 0
     files_failed: int = 0
-    
+
     documents_generated: int = 0
     chunks_generated: int = 0
     embeddings_generated: int = 0
     vectors_stored: int = 0
 
+@dataclass
+class DocumentLoadResult:
+    documents: list[Document]
+    succeeded: set[Path]
+    skipped: dict[Path, str]
+    failed: dict[Path, str]
+
 class Indexer:
-    def __init__(self, embedding_provider, vector_store: VectorStore):
+    def __init__(self, embedding_provider: EmbeddingProvider, vector_store: VectorStore):
         self.result = IndexingResult()
         self.loader = DocumentLoader(self.result)
         self.splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE,chunk_overlap=CHUNK_OVERLAP)
         self.embedding_provider = embedding_provider
         self.vector_store = vector_store
+        self.index_catalog = IndexCatalog()
 
     def index_folder(self, folder: Path) -> None:
-        # TODO: Incremental indexing
-        
+        # Find all files in the folder and subfolders
+        files = self._discover_files(folder)
+
+        # Check which files have changed since last indexing
+        signature = json.dumps({
+            "chunk_size": CHUNK_SIZE,
+            "chunk_overlap": CHUNK_OVERLAP,
+            "embedding_provider": EMBEDDING_PROVIDER,
+            "embedding_model": EMBEDDING_MODEL
+        }, sort_keys=True)
+        changed_files, deleted_files = self.index_catalog.compare_records(files, signature)
+
         # Recursively find and turn all files into langchain Documents
-        documents = self.loader.load_documents(folder)
-        
+        load_results = self.loader.load_documents(changed_files)
+
         # Split documents into chunks with certain overlap
-        chunks = self._chunk_documents(documents)
-        
+        chunks = self._chunk_documents(load_results.documents)
+
+        # Determine which files are being indexed (for deletion of old records)
+        indexed_sources = {chunk.metadata["source"] for chunk in chunks}
+        indexed_files = {file: content_hash for file, content_hash in changed_files.items() if str(file) in indexed_sources}
+
         # Turn chunks into embeddings (vectors)
         embeddings = self._embed_chunks(chunks)
-        
-        # Store chunks (data) and embeddings (vectors)
+
+        # Delete old and changed records from the vector store
+        for file in indexed_files:
+            chunk_count = self.index_catalog.get_chunk_count(str(file))
+            self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
+        for file in deleted_files:
+            chunk_count = self.index_catalog.get_chunk_count(file)
+            self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
+        for file in load_results.skipped:
+            chunk_count = self.index_catalog.get_chunk_count(str(file))
+            self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
+
+        # Store new/updated chunks (data) and embeddings (vectors)
         self.result.vectors_stored = self.vector_store.store(chunks, embeddings)
-        
+
+        # Update the index catalog with the new records and delete the old ones
+        self.index_catalog.update_successful_records(indexed_files, deleted_files, chunks, signature)
+
+        # Update the index catalog with skipped and failed records
+        self.index_catalog.update_status_records(load_results.skipped, load_results.failed, changed_files, signature)
+
         print(self.result)
-        
+
+    def _discover_files(self, folder: Path) -> list[Path]:
+        if not folder.exists() or not folder.is_dir():
+            raise ValueError(f"Provided path {folder} is not a valid directory.")
+
+        files: list[Path] = []
+        for file in folder.rglob("*"):
+            if file.is_file():
+                files.append(file)
+                self.result.files_found += 1
+
+        return files
+
     def _chunk_documents(self, documents: list[Document]) -> list[Document]:
         chunks = self.splitter.split_documents(documents)
         self.result.chunks_generated = len(chunks)
+
+        count = 0
+        current_source = None
+        for chunk in chunks:
+            source = chunk.metadata["source"]
+            if source != current_source:
+                current_source = source
+                count = 0
+            chunk.metadata["chunk_id"] = f"{source}::{count}"
+            count += 1
         return chunks
 
     def _embed_chunks(self, chunks: list[Document]) -> list[list[float]]:
+        if not chunks:
+            return []
+
         vectors = self.embedding_provider.embed_documents(
             [chunk.page_content for chunk in chunks]
         )
         self.result.embeddings_generated = len(vectors)
         return vectors
-        
+
 class DocumentLoader:
     def __init__(self, result: IndexingResult):
         self.result = result
@@ -64,44 +132,48 @@ class DocumentLoader:
             # TODO: MP4 -> Whisper Transcript -> Index as .txt
             # TODO images??
         }
-    
-    def load_documents(self, folder: Path) -> list[Document]:
-        if not folder.exists() or not folder.is_dir():
-            raise ValueError(f"Provided path {folder} is not a valid directory.")
-        
-        documents: list[Document] = []
-        for file in folder.rglob("*"):
-            if not file.is_file():
-                continue
-            
-            self.result.files_found += 1
+
+    def load_documents(self, files: dict[Path, str]) -> DocumentLoadResult:
+        load_results: DocumentLoadResult = DocumentLoadResult(
+            documents=[],
+            succeeded=set(),
+            skipped={},
+            failed={}
+        )
+        for file in files:
             loader = self.SUPPORTED_TYPES.get(file.suffix.lower())
             if loader is None:
                 print(f"Skipping unsupported file: {file.name}")
+                load_results.skipped[file] = f"Unsupported file type {file.suffix.lower()}"
                 self.result.files_skipped += 1
                 continue
+            try:
+                documents = loader(file)
+                if not documents:
+                    load_results.skipped[file] = "No documents produced"
+                    self.result.files_skipped += 1
+                    continue
+                load_results.documents.extend(documents)
+                load_results.succeeded.add(file)
+            except Exception as e:
+                print(f"Error loading file {file.name}: {e}")
+                load_results.failed[file] = str(e)
+                self.result.files_failed += 1
 
-            documents.extend(loader(file))
-            
-        self.result.documents_generated = len(documents)
-        return documents
-    
+        self.result.documents_generated = len(load_results.documents)
+        return load_results
+
     def _load_pdf(self, file: Path) -> list[Document]:
         print(f"Loading PDF document: {file.name}")
         # TODO: Visual Search
-        try:
-            documents = PyPDFLoader(str(file)).load()
-            
-            for doc in documents:
-                # Optionally add metadata about the source file
-                doc.metadata["filename"] = file.name
-            self.result.files_loaded += 1
-            return documents
-        except Exception as e:
-            print(f"Error loading PDF {file.name}: {e}")
-            self.result.files_failed += 1
-            return []
-            
+        documents = PyPDFLoader(str(file)).load()
+
+        for doc in documents:
+            doc.metadata["filename"] = file.name
+            doc.metadata["source"] = str(file)
+        self.result.files_loaded += 1
+        return documents
+
     def _load_txt(self, file: Path) -> list[Document]:
         print(f"Loading TXT document: {file.name}")
         with open(file, encoding="utf-8") as f:
@@ -116,3 +188,126 @@ class DocumentLoader:
                 }
             )
         ]
+
+class IndexCatalog:
+    def __init__(self, index_db_path: Path | None = None):
+        if index_db_path is None:
+            index_db_path = Path("data") / "dbs" / "index.db"
+            index_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.conn = sqlite3.connect(index_db_path)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS index_metadata (
+                path TEXT PRIMARY KEY,
+                content_hash TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                index_status TEXT NOT NULL,
+                error_message TEXT,
+                config_signature TEXT NOT NULL
+            );""")
+
+    def compare_records(self, files: list[Path], config_signature: str) -> tuple[dict[Path, str], set[str]]:
+        cursor = self.conn.cursor()
+
+        changed_files: dict[Path, str] = {}
+        for file in files:
+            path = str(file)
+            content_hash = self._calculate_content_hash(file)
+
+            cursor.execute("SELECT content_hash, config_signature, index_status FROM index_metadata WHERE path = ?", (path,))
+            record = cursor.fetchone()
+
+            if record is None or \
+                record[0] !=  content_hash or \
+                record[1] != config_signature or \
+                record[2] == "failed":
+
+                changed_files[file] = content_hash
+
+        # Remove records for files that no longer exist
+        cursor.execute("SELECT path FROM index_metadata")
+        all_records = {row[0] for row in cursor.fetchall()}
+        deleted_files = all_records - {str(file) for file in files}
+
+        return changed_files, deleted_files
+
+    def delete_record(self, path: str) -> None:
+        self.conn.execute("DELETE FROM index_metadata WHERE path = ?", (path,))
+        self.conn.commit()
+
+    def _calculate_content_hash(self, file: Path) -> str:
+        hasher = hashlib.sha256()
+
+        with open(file, "rb") as f:
+            while chunk := f.read(8192):
+                hasher.update(chunk)
+
+        return hasher.hexdigest()
+
+    def update_successful_records(self, changed_files: dict[Path, str], deleted_files: set[str], chunks: list[Document], config_signature: str) -> None:
+        cursor = self.conn.cursor()
+
+        for file, content_hash in changed_files.items():
+            path = str(file)
+            chunk_count = len([chunk for chunk in chunks if chunk.metadata["source"] == path])
+            index_status = "succeeded"
+            error_message = None
+
+            cursor.execute("""
+                INSERT INTO index_metadata (path, content_hash, chunk_count, index_status, error_message, config_signature)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    content_hash=excluded.content_hash,
+                    chunk_count=excluded.chunk_count,
+                    index_status=excluded.index_status,
+                    error_message=excluded.error_message,
+                    config_signature=excluded.config_signature;
+            """, (path, content_hash, chunk_count, index_status, error_message, config_signature))
+
+        for path in deleted_files:
+            cursor.execute("DELETE FROM index_metadata WHERE path = ?", (path,))
+
+        self.conn.commit()
+
+    def update_status_records(self, skipped: dict[Path, str], failed: dict[Path, str], changed_files: dict[Path, str], config_signature: str,) -> None:
+        cursor = self.conn.cursor()
+
+        for file, error_message in skipped.items():
+            path = str(file)
+            content_hash = changed_files[file]
+            chunk_count = 0
+            index_status = "skipped"
+
+            cursor.execute("""
+                INSERT INTO index_metadata (path, content_hash, chunk_count, index_status, error_message, config_signature)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    content_hash=excluded.content_hash,
+                    chunk_count=excluded.chunk_count,
+                    index_status=excluded.index_status,
+                    error_message=excluded.error_message,
+                    config_signature=excluded.config_signature;
+            """, (path, content_hash, chunk_count, index_status, error_message, config_signature))
+
+        for file, error_message in failed.items():
+            path = str(file)
+            content_hash = changed_files[file]
+            chunk_count = 0
+            index_status = "failed"
+
+            cursor.execute("""
+                INSERT INTO index_metadata (path, content_hash, chunk_count, index_status, error_message, config_signature)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(path) DO UPDATE SET
+                    index_status=excluded.index_status,
+                    error_message=excluded.error_message;
+            """, (path, content_hash, chunk_count, index_status, error_message, config_signature))
+
+        self.conn.commit()
+
+    def get_chunk_count(self, path: str) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT chunk_count FROM index_metadata WHERE path = ?", (path,))
+        record = cursor.fetchone()
+        return record[0] if record else 0
