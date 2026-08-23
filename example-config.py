@@ -35,3 +35,9 @@ CHUNK_OVERLAP = 200
 
 # How many relevant chunks to return in rag context search
 RAG_TOP_K = 5
+
+# ---------- CONTEXT ----------
+# Number of messages to keep in context for the LLM
+LLM_CONTEXT_SIZE = 15
+# Number of messages to keep in context for RAG retrieval
+RAG_CONTEXT_SIZE = 3

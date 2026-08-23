@@ -4,8 +4,8 @@ from context.entities import Message
 from collections.abc import Iterator
 from langchain_core.documents import Document
 from rag.retriever import Retriever
-from pathlib import Path
 from context.prompts import SYSTEM_PROMPT_MAIN
+from config import LLM_CONTEXT_SIZE, RAG_CONTEXT_SIZE
 
 
 class Assistant:
@@ -20,7 +20,7 @@ class Assistant:
 
     # For streaming responses to the UI
     def stream_chat(self, prompt: str) -> Iterator[str]:
-        history = self.history.get_messages()
+        history = self.history.get_messages(limit=RAG_CONTEXT_SIZE)
         documents = self.retriever.retrieve(prompt, history)
 
         self.history.add_message(
@@ -30,7 +30,7 @@ class Assistant:
         messages = [
             Message(role="system", content=SYSTEM_PROMPT_MAIN),
             Message(role="system", content=self._format_context(documents)),
-            *self.history.get_messages(),
+            *self.history.get_messages(limit=LLM_CONTEXT_SIZE),
         ]
         self._dump_messages(messages)
         

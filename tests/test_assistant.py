@@ -11,17 +11,25 @@ from context.entities import Message
 from context.history import HistoryManager
 from llm.provider import LLMProvider
 from rag.retriever import Retriever
+from config import LLM_CONTEXT_SIZE, RAG_CONTEXT_SIZE
 
 
 class FakeHistory(HistoryManager):
     def __init__(self, messages: list[Message]) -> None:
         self.messages = list(messages)
+        self.get_messages_calls: list[tuple[int | None, int | None]] = []
 
     def add_message(self, msg: Message) -> None:
         self.messages.append(msg)
 
-    def get_messages(self) -> list[Message]:
-        return self.messages.copy()
+    def get_messages(
+        self,
+        conversation_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[Message]:
+        self.get_messages_calls.append((conversation_id, limit))
+        messages = self.messages.copy()
+        return messages if limit is None else messages[-limit:]
 
 
 class FakeRetriever(Retriever):
@@ -99,6 +107,10 @@ class AssistantTests(unittest.TestCase):
 
         self.assertEqual(completion, "answer")
         self.assertEqual(retriever.calls, [("Follow-up question", prior_history, 5)])
+        self.assertEqual(
+            history.get_messages_calls,
+            [(None, RAG_CONTEXT_SIZE), (None, LLM_CONTEXT_SIZE)],
+        )
         user_messages = [
             message
             for message in history.messages

@@ -1,5 +1,6 @@
 import streamlit as st
 from assistant.assistant import Assistant
+from context.conversations import ConversationManager
 from context.history import HistoryManager
 from llm.openai import OpenAIChatProvider
 from llm.ollama import OllamaChatProvider
@@ -33,7 +34,8 @@ def create_providers():
 
 def main():
     llm, embedding_provider = create_providers()
-    history = HistoryManager()
+    conversations = ConversationManager()
+    history = HistoryManager(conversations)
     vector_store = VectorStore(embedding_provider=embedding_provider) 
     indexer = Indexer(
         embedding_provider=embedding_provider,
