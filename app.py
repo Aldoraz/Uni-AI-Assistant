@@ -32,6 +32,50 @@ def create_providers():
     return llm, embedder
 
 
+def render_conversation_sidebar(history: HistoryManager) -> None:
+    with st.sidebar:
+        st.header("Conversations")
+
+        if st.button("New conversation"):
+            history.create_active_conversation()
+            st.rerun()
+
+        conversations = history.get_conversations()
+        conversation_ids = [conversation_id for conversation_id, _ in conversations]
+        titles = dict(conversations)
+        active_id = int(st.session_state.active_conversation_id)
+
+        def conversation_title(conversation_id: int) -> str:
+            return titles[conversation_id]
+
+        selected_id = st.selectbox(
+            "Conversation",
+            options=conversation_ids,
+            index=conversation_ids.index(active_id),
+            format_func=conversation_title,
+        )
+
+        if selected_id != active_id:
+            history.set_active_conversation(selected_id)
+            st.rerun()
+
+        with st.form(f"rename_conversation_{active_id}"):
+            new_title = st.text_input("Conversation title", value=titles[active_id])
+            rename_submitted = st.form_submit_button("Rename")
+
+        if rename_submitted:
+            new_title = new_title.strip()
+            if new_title:
+                history.rename_conversation(active_id, new_title)
+                st.rerun()
+            else:
+                st.error("Conversation title cannot be empty.")
+
+        if st.button("Delete conversation"):
+            history.delete_conversation(active_id)
+            st.rerun()
+
+
 def main():
     llm, embedding_provider = create_providers()
     conversations = ConversationManager()
@@ -47,6 +91,7 @@ def main():
         retriever=retriever
     )
 
+    render_conversation_sidebar(history)
 
     st.title("Learning AI Assistant")
     for message in history.get_messages():

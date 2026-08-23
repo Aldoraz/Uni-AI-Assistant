@@ -75,6 +75,16 @@ class HistoryManagerTests(unittest.TestCase):
         self.assertNotEqual(new_id, original_id)
         self.assertEqual(self.session_state.active_conversation_id, new_id)
 
+    def test_set_active_conversation_validates_and_switches_id(self) -> None:
+        history = HistoryManager(self.conversations)
+        second_id = self.conversations.create_conversation("Second")
+
+        history.set_active_conversation(second_id)
+
+        self.assertEqual(self.session_state.active_conversation_id, second_id)
+        with self.assertRaises(ValueError):
+            history.set_active_conversation(999)
+
     def test_get_messages_supports_conversation_and_limit(self) -> None:
         history = HistoryManager(self.conversations)
         first_id = self.session_state.active_conversation_id
