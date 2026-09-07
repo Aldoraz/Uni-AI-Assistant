@@ -11,6 +11,7 @@ from rag.indexer import (
     DocumentLoader,
     DocumentLoadResult,
     IndexCatalog,
+    IndexRecord,
     Indexer,
     IndexingResult,
 )
@@ -143,18 +144,40 @@ class IndexCatalogTests(unittest.TestCase):
 
         self.assertEqual(deleted, {str(file)})
 
+    def test_get_records_returns_displayable_index_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            file = root / "notes.txt"
+            file.write_text("notes", encoding="utf-8")
+            catalog = IndexCatalog(root / "index.db")
+            changed, _ = catalog.compare_records([file], "signature")
+            chunk = Document(page_content="notes", metadata={"source": str(file)})
+            catalog.update_successful_records(changed, set(), [chunk], "signature")
+
+            records = catalog.get_records()
+            catalog.conn.close()
+
+        self.assertEqual(
+            records,
+            [
+                IndexRecord(
+                    path=str(file),
+                    chunk_count=1,
+                    index_status="succeeded",
+                    error_message=None,
+                )
+            ],
+        )
+
 
 class IndexerTests(unittest.TestCase):
     @patch("rag.indexer.IndexCatalog")
     def test_index_folder_processes_only_indexable_changed_files(self, catalog_type):
         indexed_file = Path("documents/notes.txt")
-        skipped_file = Path("documents/image.png")
+        unsupported_file = Path("documents/video.mp4")
         deleted_file = "documents/old.txt"
         catalog = catalog_type.return_value
-        changed_files = {
-            indexed_file: "text-hash",
-            skipped_file: "image-hash",
-        }
+        changed_files = {indexed_file: "text-hash"}
         catalog.compare_records.return_value = (changed_files, {deleted_file})
         catalog.get_chunk_count.return_value = 0
 
@@ -163,27 +186,49 @@ class IndexerTests(unittest.TestCase):
         vector_store = Mock()
         vector_store.store.return_value = 1
         indexer = Indexer(embedder, vector_store)
-        indexer._discover_files = Mock(return_value=[indexed_file, skipped_file])
         document = Document(
             page_content="source", metadata={"source": str(indexed_file)}
         )
-        indexer.loader = Mock()
-        indexer.loader.load_documents.return_value = DocumentLoadResult(
+        load_result = DocumentLoadResult(
             documents=[document],
             succeeded={indexed_file},
-            skipped={skipped_file: "unsupported"},
+            skipped={},
             failed={},
         )
 
-        indexer.index_folder(Path("documents"))
+        with (
+            patch.object(
+                indexer,
+                "_discover_files",
+                return_value=[indexed_file, unsupported_file],
+            ),
+            patch.object(
+                indexer.loader,
+                "load_documents",
+                return_value=load_result,
+            )
+        ):
+            result = indexer.index_folder(Path("documents"))
 
+        catalog.compare_records.assert_called_once_with([indexed_file], ANY)
         stored_chunks = vector_store.store.call_args.args[0]
         self.assertEqual(stored_chunks[0].metadata["chunk_id"], f"{indexed_file}::0")
         successful_files = catalog.update_successful_records.call_args.args[0]
         self.assertEqual(successful_files, {indexed_file: "text-hash"})
         catalog.update_status_records.assert_called_once_with(
-            {skipped_file: "unsupported"}, {}, changed_files, ANY
+            {}, {}, changed_files, ANY
         )
+        self.assertIs(result, indexer.result)
+
+    @patch("rag.indexer.IndexCatalog")
+    def test_get_index_status_delegates_to_catalog(self, catalog_type):
+        expected = [IndexRecord("notes.txt", 2, "succeeded", None)]
+        catalog_type.return_value.get_records.return_value = expected
+        indexer = Indexer(Mock(), Mock())
+
+        actual = indexer.get_index_status()
+
+        self.assertIs(actual, expected)
 
 
 if __name__ == "__main__":

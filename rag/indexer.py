@@ -29,6 +29,14 @@ class DocumentLoadResult:
     skipped: dict[Path, str]
     failed: dict[Path, str]
 
+@dataclass
+class IndexRecord:
+    path: str
+    chunk_count: int
+    index_status: str
+    error_message: str | None
+
+
 class Indexer:
     def __init__(self, embedding_provider: EmbeddingProvider, vector_store: VectorStore):
         self.result = IndexingResult()
@@ -38,9 +46,15 @@ class Indexer:
         self.vector_store = vector_store
         self.index_catalog = IndexCatalog()
 
-    def index_folder(self, folder: Path) -> None:
+    def index_folder(self, folder: Path) -> IndexingResult:
         # Find all files in the folder and subfolders
         files = self._discover_files(folder)
+
+        supported_files = [
+            file
+            for file in files
+            if file.suffix.lower() in self.loader.SUPPORTED_TYPES
+        ]
 
         # Check which files have changed since last indexing
         signature = json.dumps({
@@ -49,7 +63,7 @@ class Indexer:
             "embedding_provider": EMBEDDING_PROVIDER,
             "embedding_model": EMBEDDING_MODEL
         }, sort_keys=True)
-        changed_files, deleted_files = self.index_catalog.compare_records(files, signature)
+        changed_files, deleted_files = self.index_catalog.compare_records(supported_files, signature)
 
         # Recursively find and turn all files into langchain Documents
         load_results = self.loader.load_documents(changed_files)
@@ -84,7 +98,7 @@ class Indexer:
         # Update the index catalog with skipped and failed records
         self.index_catalog.update_status_records(load_results.skipped, load_results.failed, changed_files, signature)
 
-        print(self.result)
+        return self.result
 
     def _discover_files(self, folder: Path) -> list[Path]:
         if not folder.exists() or not folder.is_dir():
@@ -122,6 +136,10 @@ class Indexer:
         )
         self.result.embeddings_generated = len(vectors)
         return vectors
+
+    def get_index_status(self) -> list[IndexRecord]:
+        return self.index_catalog.get_records()
+
 
 class DocumentLoader:
     def __init__(self, result: IndexingResult):
@@ -188,6 +206,7 @@ class DocumentLoader:
                 }
             )
         ]
+
 
 class IndexCatalog:
     def __init__(self, index_db_path: Path | None = None):
@@ -311,3 +330,9 @@ class IndexCatalog:
         cursor.execute("SELECT chunk_count FROM index_metadata WHERE path = ?", (path,))
         record = cursor.fetchone()
         return record[0] if record else 0
+
+    def get_records(self) -> list[IndexRecord]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT path, chunk_count, index_status, error_message FROM index_metadata ORDER BY path ASC")
+        records = cursor.fetchall()
+        return [IndexRecord(path=row[0], chunk_count=row[1], index_status=row[2], error_message=row[3]) for row in records]
