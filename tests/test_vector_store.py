@@ -101,6 +101,30 @@ class VectorStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not initialized"):
             store.delete_by_ids(["a::0"])
 
+    def test_get_by_ids_with_no_ids_is_a_no_op(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = None
+
+        self.assertEqual(store.get_by_ids([]), [])
+
+    def test_get_by_ids_requires_initialized_database(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = None
+
+        with self.assertRaisesRegex(ValueError, "not initialized"):
+            store.get_by_ids(["a::0"])
+
+    def test_get_by_ids_delegates_to_database(self):
+        store = VectorStore.__new__(VectorStore)
+        store.db = Mock()
+        expected = [Document(page_content="match")]
+        store.db.get_by_ids.return_value = expected
+
+        actual = store.get_by_ids(["a::0"])
+
+        self.assertIs(actual, expected)
+        store.db.get_by_ids.assert_called_once_with(["a::0"])
+
     def test_search_requires_initialized_database(self):
         store = VectorStore.__new__(VectorStore)
         store.db = None

@@ -7,11 +7,11 @@ from unittest.mock import patch
 from langchain_core.documents import Document
 
 from assistant.assistant import Assistant
+from config import LLM_CONTEXT_SIZE, RAG_CONTEXT_SIZE
 from context.entities import Message
 from context.history import HistoryManager
 from llm.provider import LLMProvider
 from rag.retriever import Retriever
-from config import LLM_CONTEXT_SIZE, RAG_CONTEXT_SIZE
 
 
 class FakeHistory(HistoryManager):
@@ -41,7 +41,7 @@ class FakeRetriever(Retriever):
         query: str,
         history: list[Message],
         k: int = 5,
-    ) -> list[tuple[Document, float]]:
+    ) -> list[Document]:
         self.calls.append((query, history, k))
         return []
 
@@ -79,7 +79,7 @@ class AssistantTests(unittest.TestCase):
 
         self.assertEqual(assistant._format_context([]), "")
 
-    def test_format_context_includes_document_metadata_content_and_score(self):
+    def test_format_context_includes_document_metadata_and_content(self):
         assistant = Assistant(
             llm=FakeLLM(), history=FakeHistory([]), retriever=FakeRetriever()
         )
@@ -88,12 +88,12 @@ class AssistantTests(unittest.TestCase):
             metadata={"filename": "notes.pdf", "page": 1},
         )
 
-        context = assistant._format_context([(document, 0.4321)])
+        context = assistant._format_context([document])
 
         self.assertIn("--- Document 1 ---", context)
         self.assertIn("Source: notes.pdf", context)
         self.assertIn("Page: 2", context)
-        self.assertIn("Similarity Score: 0.4321", context)
+        self.assertNotIn("Similarity Score", context)
         self.assertIn("Relevant passage.", context)
 
     def test_retrieval_uses_prior_history_and_current_prompt_is_added_once(self):

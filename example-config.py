@@ -34,7 +34,13 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 # How many relevant chunks to return in rag context search
+RAG_CANDIDATE_K = 15
+# How many relevant chunks to use in the final context for the LLM
 RAG_TOP_K = 5
+# How many additional relevant chunks to include in the context expansion
+RAG_EXPANSION_RADIUS = 1
+# Maximum FAISS distance accepted for retrieval; lower is more similar
+RAG_MAX_DISTANCE = 1.2
 
 # ---------- CONTEXT ----------
 # Number of messages to keep in context for the LLM

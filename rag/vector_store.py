@@ -1,8 +1,11 @@
 from pathlib import Path
-from langchain_core.documents import Document
+
 from langchain_community.vectorstores import FAISS
-from embedding.provider import EmbeddingProvider
+from langchain_core.documents import Document
+
 from config import INDEX_PATH
+from embedding.provider import EmbeddingProvider
+
 
 class VectorStore:
     def __init__(self, embedding_provider: EmbeddingProvider):
@@ -59,9 +62,18 @@ class VectorStore:
     def delete_by_ids(self, ids: list[str]) -> None:
         if not ids:
             return
+
         if self.db is None:
             raise ValueError("Vector store is not initialized")
 
-
         self.db.delete(ids)
         self.db.save_local(str(INDEX_PATH))
+
+    def get_by_ids(self, ids: list[str]) -> list[Document]:
+        if not ids:
+            return []
+
+        if self.db is None:
+            raise ValueError("Vector store is not initialized")
+
+        return self.db.get_by_ids(ids)

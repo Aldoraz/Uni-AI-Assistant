@@ -1,11 +1,13 @@
-from context.history import HistoryManager
-from llm.provider import LLMProvider
-from context.entities import Message
 from collections.abc import Iterator
+
 from langchain_core.documents import Document
-from rag.retriever import Retriever
-from context.prompts import SYSTEM_PROMPT_MAIN
+
 from config import LLM_CONTEXT_SIZE, RAG_CONTEXT_SIZE
+from context.entities import Message
+from context.history import HistoryManager
+from context.prompts import SYSTEM_PROMPT_MAIN
+from llm.provider import LLMProvider
+from rag.retriever import Retriever
 
 
 class Assistant:
@@ -45,27 +47,23 @@ class Assistant:
             Message(role="assistant", content=completion)
         )
         
-    def _format_context(self, documents: list[tuple[Document, float]]) -> str:
+    def _format_context(self, documents: list[Document]) -> str:
         if not documents:
             return ""
         
         context = [
-        "Use the retrieved context whenever it is relevant.",
-        "If the retrieved context does not answer the user's question, ignore it completely and answer from your own knowledge.",
-        "Do not invent citations.",
-        "Only cite retrieved documents that were actually used.",
-        "Similarity scores indicate retrieval quality.",
-        "Lower scores indicate more relevant matches.",
-        "Treat results below 0.7 as highly relevant.",
-        "Treat results above 1.0 as weakly relevant.",
-        ""
+            "Use the retrieved context whenever it is relevant.",
+            "If the retrieved context does not answer the user's question, "
+            "ignore it completely and answer from your own knowledge.",
+            "Do not invent citations.",
+            "Only cite retrieved documents that were actually used.",
+            "",
         ]
 
-        for i, (document, score) in enumerate(documents, start=1):
+        for i, document in enumerate(documents, start=1):
             context.append(f"--- Document {i} ---")
             context.append(f"Source: {document.metadata.get('filename', 'Unknown')}")
             context.append(f"Page: {document.metadata.get('page', '?') + 1}")
-            context.append(f"Similarity Score: {score:.4f}")
             context.append("")
             context.append(document.page_content.strip())
             context.append("")
