@@ -1,7 +1,9 @@
 import logging
+import os
 from pathlib import Path
 
 from colorama import Fore, Style, just_fix_windows_console
+from dotenv import load_dotenv
 import streamlit as st
 
 from assistant.assistant import Assistant
@@ -11,6 +13,12 @@ from config import (
     DOCUMENTS_PATH,
     EMBEDDING_MODEL,
     EMBEDDING_PROVIDER,
+    WEB_SEARCH_ENABLED,
+    OLLAMA_BASE_URL,
+    OLLAMA_CONTEXT_WINDOW,
+    OLLAMA_EMBEDDING_BATCH_SIZE,
+    OLLAMA_REASONING_ENABLED,
+    OLLAMA_KEEP_ALIVE,
 )
 from context.conversations import ConversationManager
 from context.history import HistoryManager
@@ -22,6 +30,7 @@ from rag.indexer import Indexer
 from rag.retriever import Retriever
 from rag.vector_store import VectorStore
 from tools.read_document import ReadDocumentTool
+from tools.tool import Tool
 from tools.tool_orchestrator import ToolOrchestrator
 from tools.web_search import WebSearchTool
 
@@ -169,8 +178,13 @@ def create_providers():
     if CHAT_PROVIDER == "openai":
         llm = OpenAIChatProvider(model=CHAT_MODEL)
     elif CHAT_PROVIDER == "ollama":
-        llm = OllamaChatProvider(model=CHAT_MODEL)
-        pass
+        llm = OllamaChatProvider(
+            model=CHAT_MODEL,
+            base_url=OLLAMA_BASE_URL,
+            context_window=OLLAMA_CONTEXT_WINDOW,
+            reasoning=OLLAMA_REASONING_ENABLED,
+            keep_alive=OLLAMA_KEEP_ALIVE,
+        )
     else:
         raise ValueError(f"Unsupported chat provider: {CHAT_PROVIDER}")
 
@@ -178,7 +192,11 @@ def create_providers():
     if EMBEDDING_PROVIDER == "openai":
         embedder = OpenAIEmbeddingProvider(model=EMBEDDING_MODEL)
     elif EMBEDDING_PROVIDER == "ollama":
-        embedder = OllamaEmbeddingProvider(model=EMBEDDING_MODEL)
+        embedder = OllamaEmbeddingProvider(
+            model=EMBEDDING_MODEL,
+            base_url=OLLAMA_BASE_URL,
+            batch_size=OLLAMA_EMBEDDING_BATCH_SIZE,
+        )
     else:
         raise ValueError(f"Unsupported embedding provider: {EMBEDDING_PROVIDER}")
 
@@ -201,12 +219,20 @@ def create_rag_resources():
     return llm, embedding_provider, vector_store, retriever
 
 def create_tool_orchestrator(indexer: Indexer) -> ToolOrchestrator:
-    return ToolOrchestrator(
-        tools=[
-            ReadDocumentTool(indexer),
-            WebSearchTool(),
-        ]
-    )
+    tools: list[Tool] = [ReadDocumentTool(indexer)]
+
+    if WEB_SEARCH_ENABLED:
+        load_dotenv()
+        if os.getenv("TAVILY_API_KEY", "").strip():
+            tools.append(WebSearchTool())
+        else:
+            logger.warning(
+                "Web search disabled: TAVILY_API_KEY is not configured"
+            )
+    else:
+        logger.info("Web search disabled by configuration")
+
+    return ToolOrchestrator(tools=tools)
 
 
 def main():

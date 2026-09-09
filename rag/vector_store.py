@@ -1,11 +1,11 @@
 import logging
-from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from config import INDEX_PATH
+from config import EMBEDDING_PROVIDER, EMBEDDING_MODEL, INDEX_PATH
 from embedding.provider import EmbeddingProvider
+from rag.index_paths import get_index_directory
 
 logger = logging.getLogger(__name__)
 
@@ -15,16 +15,29 @@ class VectorStore:
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_provider.model
 
-        if Path(INDEX_PATH).exists():
+        self.index_path = get_index_directory(
+            INDEX_PATH,
+            EMBEDDING_PROVIDER,
+            EMBEDDING_MODEL,
+        )
+        faiss_path = self.index_path / "index.faiss"
+        metadata_path = self.index_path / "index.pkl"
+
+        if faiss_path.exists() and metadata_path.exists():
             self.db = FAISS.load_local(
-                str(INDEX_PATH),
+                str(self.index_path),
                 self.embedding_model,
                 allow_dangerous_deserialization=True
             )
             logger.info("Loaded vector index (vectors=%d)", self.db.index.ntotal)
-        else:
+        elif not faiss_path.exists() and not metadata_path.exists():
             self.db = None
             logger.info("No existing vector index found")
+        else:
+            raise ValueError(
+                "Vector index files are inconsistent. Both index.faiss and "
+                "index.pkl must exist or neither."
+            )
 
 
     def store(self, chunks: list[Document], embeddings: list[list[float]]) -> int:
@@ -51,7 +64,7 @@ class VectorStore:
                 ids=chunk_ids
             )
 
-        self.db.save_local(str(INDEX_PATH))
+        self.db.save_local(str(self.index_path))
         logger.info(
             "Stored vectors (added=%d, total=%d)",
             len(chunks),
@@ -76,7 +89,7 @@ class VectorStore:
             raise ValueError("Vector store is not initialized")
 
         self.db.delete(ids)
-        self.db.save_local(str(INDEX_PATH))
+        self.db.save_local(str(self.index_path))
         logger.info("Deleted vectors (count=%d)", len(ids))
 
     def get_by_ids(self, ids: list[str]) -> list[Document]:

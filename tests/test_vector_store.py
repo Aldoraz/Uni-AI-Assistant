@@ -40,8 +40,17 @@ class VectorStoreTests(unittest.TestCase):
         provider = FakeEmbeddingProvider()
         faiss.load_local.return_value.index.ntotal = 3
         with tempfile.TemporaryDirectory() as directory:
-            index_path = Path(directory)
-            with patch("rag.vector_store.INDEX_PATH", index_path):
+            index_root = Path(directory)
+            index_path = index_root / "test-provider--test-model"
+            index_path.mkdir()
+            (index_path / "index.faiss").touch()
+            (index_path / "index.pkl").touch()
+            with patch.multiple(
+                "rag.vector_store",
+                INDEX_PATH=index_root,
+                EMBEDDING_PROVIDER="test-provider",
+                EMBEDDING_MODEL="test-model",
+            ):
                 store = VectorStore(provider)
 
         faiss.load_local.assert_called_once_with(
@@ -55,6 +64,7 @@ class VectorStoreTests(unittest.TestCase):
         store = VectorStore.__new__(VectorStore)
         store.embedding_provider = provider
         store.embedding_model = provider.model
+        store.index_path = Path("index-path")
         store.db = None
         documents = [
             Document(page_content="one", metadata={"file": "a", "chunk_id": "a::0"}),
@@ -63,8 +73,7 @@ class VectorStoreTests(unittest.TestCase):
         database = Mock()
         faiss.from_embeddings.return_value = database
 
-        with patch("rag.vector_store.INDEX_PATH", Path("index-path")):
-            count = store.store(documents, [[1.0], [2.0]])
+        count = store.store(documents, [[1.0], [2.0]])
 
         faiss.from_embeddings.assert_called_once_with(
             text_embeddings=[("one", [1.0]), ("two", [2.0])],
@@ -78,6 +87,25 @@ class VectorStoreTests(unittest.TestCase):
         database.save_local.assert_called_once_with("index-path")
         self.assertEqual(count, 2)
         self.assertIs(store.db, database)
+
+    def test_rejects_incomplete_index(self):
+        provider = FakeEmbeddingProvider()
+        with tempfile.TemporaryDirectory() as directory:
+            index_root = Path(directory)
+            index_path = index_root / "test-provider--test-model"
+            index_path.mkdir()
+            (index_path / "index.faiss").touch()
+
+            with (
+                patch.multiple(
+                    "rag.vector_store",
+                    INDEX_PATH=index_root,
+                    EMBEDDING_PROVIDER="test-provider",
+                    EMBEDDING_MODEL="test-model",
+                ),
+                self.assertRaisesRegex(ValueError, "inconsistent"),
+            ):
+                VectorStore(provider)
 
     def test_store_with_no_chunks_is_a_no_op(self):
         store = VectorStore.__new__(VectorStore)

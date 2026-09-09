@@ -2,10 +2,8 @@ from pathlib import Path
 
 # ---------- Providers & Models ----------
 # What LLM provider to use for chat completions
-# Options: "openai", "ollama"
 CHAT_PROVIDER  = "openai"
 # What model to use for chat completions
-# Options depend on the provider / downloaded model.
 CHAT_MODEL = "gpt-4.1"
 
 # What embedding provider to use for embedding generation
@@ -13,9 +11,19 @@ CHAT_MODEL = "gpt-4.1"
 EMBEDDING_PROVIDER  = "openai"
 
 # What model to use for embedding generation
-# Options depend on the provider / downloaded model.
 EMBEDDING_MODEL = "text-embedding-3-small"
 
+# ---------- Model Options ----------
+# Base URL for Ollama API
+OLLAMA_BASE_URL = "http://localhost:11434"
+# Context window size for Ollama chat sessions; 8192 ~ 6.2GB VRAM
+OLLAMA_CONTEXT_WINDOW = 8192
+# Number of document chunks sent in each local embedding request
+OLLAMA_EMBEDDING_BATCH_SIZE = 64
+# Whether to enable reasoning mode for Ollama chat sessions
+OLLAMA_REASONING_ENABLED = False
+# Keep-alive duration for Ollama chat sessions; can be a string like "15m" or "1h"
+OLLAMA_KEEP_ALIVE = "15m"
 
 # ---------- RAG ----------
 DATA_DIR = Path("data")
@@ -49,6 +57,8 @@ LLM_CONTEXT_SIZE = 15
 RAG_CONTEXT_SIZE = 3
 
 # ---------- TOOLS ----------
+# Whether to expose the external Tavily web-search tool
+WEB_SEARCH_ENABLED = False
 # Maximum number of characters to include in the content returned by tools
 TOOL_MAX_CONTENT_CHARS = 50_000
 # Maximum number of web search results to return

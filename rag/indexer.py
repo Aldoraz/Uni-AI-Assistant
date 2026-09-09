@@ -9,8 +9,9 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from embedding.provider import EmbeddingProvider
+from rag.index_paths import get_index_directory
 from rag.vector_store import VectorStore
-from config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_PROVIDER, EMBEDDING_MODEL
+from config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_PROVIDER, EMBEDDING_MODEL, INDEX_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -309,12 +310,18 @@ class DocumentLoader:
 
 
 class IndexCatalog:
-    def __init__(self, index_db_path: Path | None = None):
-        if index_db_path is None:
-            index_db_path = Path("data") / "dbs" / "index.db"
-            index_db_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, index_path: Path | None = None):
+        if index_path is None:
+            self.index_path = get_index_directory(
+                INDEX_PATH,
+                EMBEDDING_PROVIDER,
+                EMBEDDING_MODEL,
+            ) / "catalog.db"
+        else:
+            self.index_path = index_path
+        self.index_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.conn = sqlite3.connect(index_db_path)
+        self.conn = sqlite3.connect(self.index_path)
 
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS index_metadata (

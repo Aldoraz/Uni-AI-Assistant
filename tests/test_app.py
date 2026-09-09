@@ -18,8 +18,14 @@ class CreateProvidersTests(unittest.TestCase):
     ):
         indexer = Mock(spec=app.Indexer)
 
-        result = app.create_tool_orchestrator(indexer)
+        with (
+            patch.object(app, "WEB_SEARCH_ENABLED", True),
+            patch("app.load_dotenv") as load_dotenv,
+            patch("app.os.getenv", return_value="tavily-key"),
+        ):
+            result = app.create_tool_orchestrator(indexer)
 
+        load_dotenv.assert_called_once_with()
         read_document_tool.assert_called_once_with(indexer)
         web_search_tool.assert_called_once_with()
         orchestrator.assert_called_once_with(
@@ -29,6 +35,48 @@ class CreateProvidersTests(unittest.TestCase):
             ]
         )
         self.assertIs(result, orchestrator.return_value)
+
+    @patch("app.ToolOrchestrator")
+    @patch("app.WebSearchTool")
+    @patch("app.ReadDocumentTool")
+    def test_omits_web_search_when_disabled(
+        self,
+        read_document_tool,
+        web_search_tool,
+        orchestrator,
+    ):
+        indexer = Mock(spec=app.Indexer)
+
+        with patch.object(app, "WEB_SEARCH_ENABLED", False):
+            app.create_tool_orchestrator(indexer)
+
+        web_search_tool.assert_not_called()
+        orchestrator.assert_called_once_with(
+            tools=[read_document_tool.return_value]
+        )
+
+    @patch("app.ToolOrchestrator")
+    @patch("app.WebSearchTool")
+    @patch("app.ReadDocumentTool")
+    def test_omits_web_search_without_api_key(
+        self,
+        read_document_tool,
+        web_search_tool,
+        orchestrator,
+    ):
+        indexer = Mock(spec=app.Indexer)
+
+        with (
+            patch.object(app, "WEB_SEARCH_ENABLED", True),
+            patch("app.load_dotenv"),
+            patch("app.os.getenv", return_value="  "),
+        ):
+            app.create_tool_orchestrator(indexer)
+
+        web_search_tool.assert_not_called()
+        orchestrator.assert_called_once_with(
+            tools=[read_document_tool.return_value]
+        )
 
     @patch("app.OpenAIEmbeddingProvider")
     @patch("app.OpenAIChatProvider")
@@ -56,11 +104,26 @@ class CreateProvidersTests(unittest.TestCase):
             patch.object(app, "CHAT_MODEL", "chat-model"),
             patch.object(app, "EMBEDDING_PROVIDER", "ollama"),
             patch.object(app, "EMBEDDING_MODEL", "embedding-model"),
+            patch.object(app, "OLLAMA_BASE_URL", "http://ollama.test"),
+            patch.object(app, "OLLAMA_CONTEXT_WINDOW", 8192),
+            patch.object(app, "OLLAMA_EMBEDDING_BATCH_SIZE", 64),
+            patch.object(app, "OLLAMA_REASONING_ENABLED", False),
+            patch.object(app, "OLLAMA_KEEP_ALIVE", "15m"),
         ):
             llm, embedder = app.create_providers()
 
-        chat_provider.assert_called_once_with(model="chat-model")
-        embedding_provider.assert_called_once_with(model="embedding-model")
+        chat_provider.assert_called_once_with(
+            model="chat-model",
+            base_url="http://ollama.test",
+            context_window=8192,
+            reasoning=False,
+            keep_alive="15m",
+        )
+        embedding_provider.assert_called_once_with(
+            model="embedding-model",
+            base_url="http://ollama.test",
+            batch_size=64,
+        )
         self.assertIs(llm, chat_provider.return_value)
         self.assertIs(embedder, embedding_provider.return_value)
 
