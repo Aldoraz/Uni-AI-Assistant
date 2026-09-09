@@ -6,8 +6,10 @@ from unittest.mock import patch
 
 from langchain_core.documents import Document
 
+from config import WEB_SEARCH_DEPTH, WEB_SEARCH_MAX_RESULTS
 from rag.indexer import Indexer
 from tools.read_document import ReadDocumentTool
+from tools.web_search import WebSearchTool
 
 
 class FakeIndexer(Indexer):
@@ -81,6 +83,87 @@ class ReadDocumentToolTests(unittest.TestCase):
 
         self.assertTrue(result.is_error)
         self.assertEqual(result.content, "No indexed document found")
+
+
+class WebSearchToolTests(unittest.TestCase):
+    @patch("tools.web_search.TavilyClient")
+    def test_searches_with_configured_options_and_formats_results(
+        self,
+        client_type,
+    ):
+        client = client_type.return_value
+        client.search.return_value = {
+            "results": [
+                {
+                    "title": "Example",
+                    "url": "https://example.com",
+                    "content": "Relevant information",
+                }
+            ]
+        }
+        tool = WebSearchTool()
+
+        result = tool.execute({"query": "  current topic  "})
+
+        self.assertFalse(result.is_error)
+        self.assertIn("Title: Example", result.content)
+        self.assertIn("URL: https://example.com", result.content)
+        self.assertIn("Content: Relevant information", result.content)
+        client.search.assert_called_once_with(
+            query="current topic",
+            search_depth=WEB_SEARCH_DEPTH,
+            max_results=WEB_SEARCH_MAX_RESULTS,
+            include_answer=False,
+            include_raw_content=False,
+        )
+
+    @patch("tools.web_search.TavilyClient")
+    def test_rejects_invalid_queries_without_searching(self, client_type):
+        client = client_type.return_value
+        tool = WebSearchTool()
+
+        for arguments in ({}, {"query": "   "}, {"query": 42}):
+            with self.subTest(arguments=arguments):
+                result = tool.execute(arguments)
+                self.assertTrue(result.is_error)
+                self.assertIn("non-empty string", result.content)
+
+        client.search.assert_not_called()
+
+    @patch("tools.web_search.TavilyClient")
+    def test_reports_empty_results_and_provider_errors(self, client_type):
+        client = client_type.return_value
+        tool = WebSearchTool()
+
+        client.search.return_value = {"results": []}
+        empty_result = tool.execute({"query": "unknown topic"})
+
+        client.search.side_effect = RuntimeError("provider unavailable")
+        error_result = tool.execute({"query": "current topic"})
+
+        self.assertTrue(empty_result.is_error)
+        self.assertIn("No web results", empty_result.content)
+        self.assertTrue(error_result.is_error)
+        self.assertIn("provider unavailable", error_result.content)
+
+    @patch("tools.web_search.TavilyClient")
+    def test_truncates_oversized_search_results(self, client_type):
+        client_type.return_value.search.return_value = {
+            "results": [
+                {
+                    "title": "Example",
+                    "url": "https://example.com",
+                    "content": "a" * 100,
+                }
+            ]
+        }
+        tool = WebSearchTool()
+
+        with patch("tools.web_search.TOOL_MAX_CONTENT_CHARS", 20):
+            result = tool.execute({"query": "topic"})
+
+        self.assertFalse(result.is_error)
+        self.assertIn("[Search results truncated", result.content)
 
 
 if __name__ == "__main__":

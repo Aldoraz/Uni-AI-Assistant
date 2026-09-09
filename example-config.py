@@ -51,3 +51,7 @@ RAG_CONTEXT_SIZE = 3
 # ---------- TOOLS ----------
 # Maximum number of characters to include in the content returned by tools
 TOOL_MAX_CONTENT_CHARS = 50_000
+# Maximum number of web search results to return
+WEB_SEARCH_MAX_RESULTS = 5
+# Depth of web search; can be "basic" or "advanced"
+WEB_SEARCH_DEPTH = "basic"
