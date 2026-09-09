@@ -29,9 +29,7 @@ class DocumentLoaderTests(unittest.TestCase):
             text_file.write_text("course notes", encoding="utf-8")
             unsupported_file.write_bytes(b"not an image")
 
-            loaded = loader.load_documents(
-                {text_file: "text-hash", unsupported_file: "image-hash"}
-            )
+            loaded = loader.load_documents([text_file, unsupported_file])
 
         self.assertEqual(len(loaded.documents), 1)
         self.assertEqual(loaded.documents[0].page_content, "course notes")
@@ -62,7 +60,7 @@ class DocumentLoaderTests(unittest.TestCase):
         file = Path("broken.pdf")
         pdf_loader.return_value.load.side_effect = RuntimeError("broken pdf")
 
-        loaded = loader.load_documents({file: "hash"})
+        loaded = loader.load_documents([file])
 
         self.assertEqual(loaded.documents, [])
         self.assertEqual(loaded.succeeded, set())
@@ -75,7 +73,7 @@ class DocumentLoaderTests(unittest.TestCase):
         file = Path("empty.txt")
         loader.SUPPORTED_TYPES[".txt"] = Mock(return_value=[])
 
-        loaded = loader.load_documents({file: "hash"})
+        loaded = loader.load_documents([file])
 
         self.assertEqual(loaded.documents, [])
         self.assertEqual(loaded.skipped, {file: "No documents produced"})
@@ -169,6 +167,19 @@ class IndexCatalogTests(unittest.TestCase):
             ],
         )
 
+    def test_get_records_by_filename_matches_exact_successful_name(self):
+        catalog = IndexCatalog.__new__(IndexCatalog)
+        records = [
+            IndexRecord("documents/Notes.pdf", 2, "succeeded", None),
+            IndexRecord("documents/old-notes.pdf", 2, "succeeded", None),
+            IndexRecord("archive/notes.pdf", 0, "failed", "broken"),
+        ]
+
+        with patch.object(catalog, "get_records", return_value=records):
+            actual = catalog.get_records_by_filename("notes.PDF")
+
+        self.assertEqual(actual, [records[0]])
+
 
 class IndexerTests(unittest.TestCase):
     @patch("rag.indexer.IndexCatalog")
@@ -229,6 +240,60 @@ class IndexerTests(unittest.TestCase):
         actual = indexer.get_index_status()
 
         self.assertIs(actual, expected)
+
+    def test_load_indexed_document_rejects_missing_and_ambiguous_names(self):
+        indexer = Indexer.__new__(Indexer)
+        indexer.index_catalog = Mock()
+
+        indexer.index_catalog.get_records_by_filename.return_value = []
+        with self.assertRaisesRegex(ValueError, "No indexed document"):
+            indexer.load_indexed_document("missing.pdf")
+
+        indexer.index_catalog.get_records_by_filename.return_value = [
+            IndexRecord("one/notes.pdf", 1, "succeeded", None),
+            IndexRecord("two/notes.pdf", 1, "succeeded", None),
+        ]
+        with self.assertRaisesRegex(ValueError, "Multiple indexed documents"):
+            indexer.load_indexed_document("notes.pdf")
+
+    @patch("rag.indexer.DocumentLoader")
+    def test_load_indexed_document_returns_loaded_documents(self, loader_type):
+        path = Path("documents/notes.pdf")
+        expected = [Document(page_content="content")]
+        indexer = Indexer.__new__(Indexer)
+        indexer.index_catalog = Mock()
+        indexer.index_catalog.get_records_by_filename.return_value = [
+            IndexRecord(str(path), 1, "succeeded", None)
+        ]
+        loader_type.return_value.load_documents.return_value = DocumentLoadResult(
+            documents=expected,
+            succeeded={path},
+            skipped={},
+            failed={},
+        )
+
+        actual = indexer.load_indexed_document("notes.pdf")
+
+        self.assertIs(actual, expected)
+        loader_type.return_value.load_documents.assert_called_once_with([path])
+
+    @patch("rag.indexer.DocumentLoader")
+    def test_load_indexed_document_surfaces_loader_failure(self, loader_type):
+        path = Path("documents/broken.pdf")
+        indexer = Indexer.__new__(Indexer)
+        indexer.index_catalog = Mock()
+        indexer.index_catalog.get_records_by_filename.return_value = [
+            IndexRecord(str(path), 0, "succeeded", None)
+        ]
+        loader_type.return_value.load_documents.return_value = DocumentLoadResult(
+            documents=[],
+            succeeded=set(),
+            skipped={},
+            failed={path: "broken PDF"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "broken PDF"):
+            indexer.load_indexed_document("broken.pdf")
 
 
 if __name__ == "__main__":

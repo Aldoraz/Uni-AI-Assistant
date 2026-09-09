@@ -47,3 +47,7 @@ RAG_MAX_DISTANCE = 1.2
 LLM_CONTEXT_SIZE = 15
 # Number of messages to keep in context for RAG retrieval
 RAG_CONTEXT_SIZE = 3
+
+# ---------- TOOLS ----------
+# Maximum number of characters to include in the content returned by tools
+TOOL_MAX_CONTENT_CHARS = 50_000

@@ -66,7 +66,7 @@ class Indexer:
         changed_files, deleted_files = self.index_catalog.compare_records(supported_files, signature)
 
         # Recursively find and turn all files into langchain Documents
-        load_results = self.loader.load_documents(changed_files)
+        load_results = self.loader.load_documents(list(changed_files))
 
         # Split documents into chunks with certain overlap
         chunks = self._chunk_documents(load_results.documents)
@@ -140,6 +140,38 @@ class Indexer:
     def get_index_status(self) -> list[IndexRecord]:
         return self.index_catalog.get_records()
 
+    def load_indexed_document(self, filename: str) -> list[Document]:
+        indexed_files = self.index_catalog.get_records_by_filename(filename)
+
+        if not indexed_files:
+            raise ValueError(f"No indexed document found with filename: {filename}")
+
+        if len(indexed_files) > 1:
+            raise ValueError(
+                f"Multiple indexed documents found with filename: {filename}."
+            )
+
+        path = Path(indexed_files[0].path)
+        loader = DocumentLoader(IndexingResult())
+        load_result = loader.load_documents([path])
+
+        if path in load_result.failed:
+            raise ValueError(
+                f"Could not load '{filename}': {load_result.failed[path]}"
+            )
+
+        if path in load_result.skipped:
+            raise ValueError(
+                f"Could not read '{filename}': {load_result.skipped[path]}"
+            )
+
+        if not load_result.documents:
+            raise ValueError(
+                f"Loading '{filename}' produced no content."
+            )
+
+        return load_result.documents
+
 
 class DocumentLoader:
     def __init__(self, result: IndexingResult):
@@ -151,7 +183,7 @@ class DocumentLoader:
             # TODO images??
         }
 
-    def load_documents(self, files: dict[Path, str]) -> DocumentLoadResult:
+    def load_documents(self, files: list[Path]) -> DocumentLoadResult:
         load_results: DocumentLoadResult = DocumentLoadResult(
             documents=[],
             succeeded=set(),
@@ -336,3 +368,11 @@ class IndexCatalog:
         cursor.execute("SELECT path, chunk_count, index_status, error_message FROM index_metadata ORDER BY path ASC")
         records = cursor.fetchall()
         return [IndexRecord(path=row[0], chunk_count=row[1], index_status=row[2], error_message=row[3]) for row in records]
+
+    def get_records_by_filename(self, filename: str) -> list[IndexRecord]:
+        return [
+            record
+            for record in self.get_records()
+            if record.index_status == "succeeded"
+            and Path(record.path).name.casefold() == filename.casefold()
+        ]
