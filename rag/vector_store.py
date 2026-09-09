@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from langchain_community.vectorstores import FAISS
@@ -5,6 +6,8 @@ from langchain_core.documents import Document
 
 from config import INDEX_PATH
 from embedding.provider import EmbeddingProvider
+
+logger = logging.getLogger(__name__)
 
 
 class VectorStore:
@@ -18,9 +21,10 @@ class VectorStore:
                 self.embedding_model,
                 allow_dangerous_deserialization=True
             )
-            print(f"Loaded {self.db.index.ntotal} vectors.")
+            logger.info("Loaded vector index (vectors=%d)", self.db.index.ntotal)
         else:
             self.db = None
+            logger.info("No existing vector index found")
 
 
     def store(self, chunks: list[Document], embeddings: list[list[float]]) -> int:
@@ -48,6 +52,11 @@ class VectorStore:
             )
 
         self.db.save_local(str(INDEX_PATH))
+        logger.info(
+            "Stored vectors (added=%d, total=%d)",
+            len(chunks),
+            self.db.index.ntotal,
+        )
         return len(chunks)
 
 
@@ -68,6 +77,7 @@ class VectorStore:
 
         self.db.delete(ids)
         self.db.save_local(str(INDEX_PATH))
+        logger.info("Deleted vectors (count=%d)", len(ids))
 
     def get_by_ids(self, ids: list[str]) -> list[Document]:
         if not ids:

@@ -55,3 +55,5 @@ TOOL_MAX_CONTENT_CHARS = 50_000
 WEB_SEARCH_MAX_RESULTS = 5
 # Depth of web search; can be "basic" or "advanced"
 WEB_SEARCH_DEPTH = "basic"
+# Maximum number of tool calls allowed per user request
+MAX_TOOL_CALLS = 5

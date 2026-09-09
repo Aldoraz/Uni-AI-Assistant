@@ -6,3 +6,4 @@ pypdf
 langchain_ollama
 faiss-cpu
 tavily-python
+colorama

@@ -1,12 +1,35 @@
 # AI-generated with OpenAI Codex
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import app
 
 
 class CreateProvidersTests(unittest.TestCase):
+    @patch("app.ToolOrchestrator")
+    @patch("app.WebSearchTool")
+    @patch("app.ReadDocumentTool")
+    def test_creates_tool_orchestrator_with_available_tools(
+        self,
+        read_document_tool,
+        web_search_tool,
+        orchestrator,
+    ):
+        indexer = Mock(spec=app.Indexer)
+
+        result = app.create_tool_orchestrator(indexer)
+
+        read_document_tool.assert_called_once_with(indexer)
+        web_search_tool.assert_called_once_with()
+        orchestrator.assert_called_once_with(
+            tools=[
+                read_document_tool.return_value,
+                web_search_tool.return_value,
+            ]
+        )
+        self.assertIs(result, orchestrator.return_value)
+
     @patch("app.OpenAIEmbeddingProvider")
     @patch("app.OpenAIChatProvider")
     def test_creates_openai_providers(self, chat_provider, embedding_provider):

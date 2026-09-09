@@ -7,8 +7,11 @@ from unittest.mock import patch
 from langchain_core.documents import Document
 
 from config import WEB_SEARCH_DEPTH, WEB_SEARCH_MAX_RESULTS
+from context.entities import ToolCall
 from rag.indexer import Indexer
 from tools.read_document import ReadDocumentTool
+from tools.tool import Tool, ToolDefinition, ToolResult
+from tools.tool_orchestrator import ToolOrchestrator
 from tools.web_search import WebSearchTool
 
 
@@ -27,6 +30,52 @@ class FakeIndexer(Indexer):
         if self.error is not None:
             raise self.error
         return self.documents
+
+
+class FakeTool(Tool):
+    definition = ToolDefinition(
+        name="fake_tool",
+        description="A fake tool.",
+        input_schema={"type": "object", "properties": {}},
+    )
+
+    def __init__(self) -> None:
+        self.arguments: list[dict[str, object]] = []
+
+    def execute(self, arguments: dict[str, object]) -> ToolResult:
+        self.arguments.append(arguments)
+        return ToolResult("result")
+
+
+class ToolOrchestratorTests(unittest.TestCase):
+    def test_exposes_definitions_and_executes_named_tool(self):
+        tool = FakeTool()
+        orchestrator = ToolOrchestrator([tool])
+        call = ToolCall(
+            id="call-1",
+            name="fake_tool",
+            arguments={"value": 1},
+        )
+
+        result = orchestrator.execute(call)
+
+        self.assertEqual(orchestrator.get_definitions(), [tool.definition])
+        self.assertEqual(result, ToolResult("result"))
+        self.assertEqual(tool.arguments, [{"value": 1}])
+
+    def test_unknown_tool_returns_error_result(self):
+        orchestrator = ToolOrchestrator([])
+
+        result = orchestrator.execute(
+            ToolCall(id="call-1", name="missing", arguments={})
+        )
+
+        self.assertTrue(result.is_error)
+        self.assertIn("not found", result.content)
+
+    def test_duplicate_tool_names_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unique"):
+            ToolOrchestrator([FakeTool(), FakeTool()])
 
 
 class ReadDocumentToolTests(unittest.TestCase):

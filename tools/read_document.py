@@ -1,6 +1,10 @@
+import logging
+
 from config import TOOL_MAX_CONTENT_CHARS
 from rag.indexer import Indexer
 from tools.tool import Tool, ToolDefinition, ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class ReadDocumentTool(Tool):
@@ -36,15 +40,29 @@ class ReadDocumentTool(Tool):
             )
 
         filename = filename.strip()
+        logger.info("Document read started (filename=%r)", filename)
 
         try:
             documents = self.indexer.load_indexed_document(filename)
+            logger.info(
+                "Loaded indexed document for tool use (filename=%s, pages=%d)",
+                filename,
+                len(documents),
+            )
             content = "\n\n".join(
                 f"--- Page {page_number} ---\n{document.page_content}"
                 for page_number, document in enumerate(documents, start=1)
             )
 
-            if len(content) > TOOL_MAX_CONTENT_CHARS:
+            content_length = len(content)
+            if content_length > TOOL_MAX_CONTENT_CHARS:
+                logger.info(
+                    "Document tool output truncated "
+                    "(filename=%s, characters=%d, limit=%d)",
+                    filename,
+                    content_length,
+                    TOOL_MAX_CONTENT_CHARS,
+                )
                 content = (
                     content[:TOOL_MAX_CONTENT_CHARS]
                     + "\n\n[Document truncated because it exceeded the tool-output limit.]"
@@ -53,6 +71,11 @@ class ReadDocumentTool(Tool):
             return ToolResult(content=content)
 
         except ValueError as error:
+            logger.warning(
+                "Document tool could not load file (filename=%s, error=%s)",
+                filename,
+                error,
+            )
             return ToolResult(
                 content=str(error),
                 is_error=True,

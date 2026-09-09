@@ -1,6 +1,11 @@
-from context.entities import Message
-from pathlib import Path
+import logging
 import sqlite3
+from pathlib import Path
+
+from context.entities import Message
+
+logger = logging.getLogger(__name__)
+
 
 class ConversationManager:
     def __init__(self, conversations_db_path: Path | None = None):
@@ -43,6 +48,7 @@ class ConversationManager:
         self.conn.commit()
         if cursor.lastrowid is None:
             raise RuntimeError("Failed to create conversation")
+        logger.info("Created conversation (id=%d)", cursor.lastrowid)
         return cursor.lastrowid
 
     def get_conversations(self, limit: int | None = None) -> list[tuple[int, str]]:
@@ -69,6 +75,7 @@ class ConversationManager:
             (conversation_id,)
         )
         self.conn.commit()
+        logger.info("Deleted conversation (id=%d)", conversation_id)
 
     def conversation_exists(self, conversation_id: int) -> bool:
         cursor = self.conn.cursor()
@@ -85,6 +92,7 @@ class ConversationManager:
             (new_title, conversation_id)
         )
         self.conn.commit()
+        logger.info("Renamed conversation (id=%d)", conversation_id)
 
     # Messages
     def add_message(self, conversation_id: int, msg: Message) -> None:
@@ -98,6 +106,11 @@ class ConversationManager:
             (conversation_id,)
         )
         self.conn.commit()
+        logger.info(
+            "Persisted conversation message (conversation_id=%d, role=%s)",
+            conversation_id,
+            msg.role,
+        )
 
 
     def get_messages(self, conversation_id: int, limit: int | None = None) -> list[Message]:

@@ -1,37 +1,88 @@
+import logging
 from pathlib import Path
 
+from colorama import Fore, Style, just_fix_windows_console
 import streamlit as st
+
 from assistant.assistant import Assistant
+from config import (
+    CHAT_MODEL,
+    CHAT_PROVIDER,
+    DOCUMENTS_PATH,
+    EMBEDDING_MODEL,
+    EMBEDDING_PROVIDER,
+)
 from context.conversations import ConversationManager
 from context.history import HistoryManager
-from llm.openai import OpenAIChatProvider
-from llm.ollama import OllamaChatProvider
-from embedding.openai import OpenAIEmbeddingProvider
 from embedding.ollama import OllamaEmbeddingProvider
+from embedding.openai import OpenAIEmbeddingProvider
+from llm.ollama import OllamaChatProvider
+from llm.openai import OpenAIChatProvider
 from rag.indexer import Indexer
-from rag.vector_store import VectorStore
 from rag.retriever import Retriever
-from config import CHAT_PROVIDER, CHAT_MODEL, EMBEDDING_PROVIDER, EMBEDDING_MODEL, DOCUMENTS_PATH
+from rag.vector_store import VectorStore
+from tools.read_document import ReadDocumentTool
+from tools.tool_orchestrator import ToolOrchestrator
+from tools.web_search import WebSearchTool
 
-def create_providers():
-    # Chat model selection
-    if CHAT_PROVIDER == "openai":
-        llm = OpenAIChatProvider(model=CHAT_MODEL)
-    elif CHAT_PROVIDER == "ollama":
-        llm = OllamaChatProvider(model=CHAT_MODEL)
-        pass
-    else:
-        raise ValueError(f"Unsupported chat provider: {CHAT_PROVIDER}")
+logger = logging.getLogger(__name__)
 
-    # Embedding model selection
-    if EMBEDDING_PROVIDER == "openai":
-        embedder = OpenAIEmbeddingProvider(model=EMBEDDING_MODEL)
-    elif EMBEDDING_PROVIDER == "ollama":
-        embedder = OllamaEmbeddingProvider(model=EMBEDDING_MODEL)
-    else:
-        raise ValueError(f"Unsupported embedding provider: {EMBEDDING_PROVIDER}")
 
-    return llm, embedder
+class ColoredLevelFormatter(logging.Formatter):
+    LEVEL_COLORS = {
+        logging.DEBUG: Fore.CYAN,
+        logging.INFO: Fore.GREEN,
+        logging.WARNING: Fore.YELLOW,
+        logging.ERROR: Fore.RED,
+        logging.CRITICAL: Fore.MAGENTA,
+    }
+
+    def __init__(self, format_string: str, use_color: bool):
+        super().__init__(format_string)
+        self.use_color = use_color
+
+    def format(self, record: logging.LogRecord) -> str:
+        original_levelname = record.levelname
+        if self.use_color:
+            color = self.LEVEL_COLORS.get(record.levelno, "")
+            record.levelname = (
+                f"{color}{original_levelname:<8}{Style.RESET_ALL}"
+            )
+        else:
+            record.levelname = f"{original_levelname:<8}"
+
+        try:
+            return super().format(record)
+        finally:
+            record.levelname = original_levelname
+
+
+def configure_logging() -> None:
+    just_fix_windows_console()
+    format_string = "%(levelname)s | %(asctime)s | %(name)s | %(message)s"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=format_string,
+    )
+
+    for handler in logging.getLogger().handlers:
+        stream = getattr(handler, "stream", None)
+        is_terminal = bool(getattr(stream, "isatty", lambda: False)())
+        handler.setFormatter(ColoredLevelFormatter(format_string, is_terminal))
+
+    for application_logger in (
+        "assistant",
+        "context",
+        "embedding",
+        "llm",
+        "rag",
+        "tools",
+        __name__,
+    ):
+        logging.getLogger(application_logger).setLevel(logging.INFO)
+
+    for noisy_logger in ("faiss.loader", "httpcore", "httpx", "openai", "urllib3"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
 def render_conversation_sidebar(history: HistoryManager) -> None:
@@ -113,6 +164,34 @@ def render_index_status(indexer: Indexer) -> None:
                         st.error(record.error_message)
 
 
+def create_providers():
+    # Chat model selection
+    if CHAT_PROVIDER == "openai":
+        llm = OpenAIChatProvider(model=CHAT_MODEL)
+    elif CHAT_PROVIDER == "ollama":
+        llm = OllamaChatProvider(model=CHAT_MODEL)
+        pass
+    else:
+        raise ValueError(f"Unsupported chat provider: {CHAT_PROVIDER}")
+
+    # Embedding model selection
+    if EMBEDDING_PROVIDER == "openai":
+        embedder = OpenAIEmbeddingProvider(model=EMBEDDING_MODEL)
+    elif EMBEDDING_PROVIDER == "ollama":
+        embedder = OllamaEmbeddingProvider(model=EMBEDDING_MODEL)
+    else:
+        raise ValueError(f"Unsupported embedding provider: {EMBEDDING_PROVIDER}")
+
+    logger.info(
+        "Providers configured (chat=%s/%s, embedding=%s/%s)",
+        CHAT_PROVIDER,
+        CHAT_MODEL,
+        EMBEDDING_PROVIDER,
+        EMBEDDING_MODEL,
+    )
+    return llm, embedder
+
+
 @st.cache_resource
 def create_rag_resources():
     llm, embedding_provider = create_providers()
@@ -121,18 +200,29 @@ def create_rag_resources():
 
     return llm, embedding_provider, vector_store, retriever
 
+def create_tool_orchestrator(indexer: Indexer) -> ToolOrchestrator:
+    return ToolOrchestrator(
+        tools=[
+            ReadDocumentTool(indexer),
+            WebSearchTool(),
+        ]
+    )
+
 
 def main():
+    configure_logging()
     llm, embedding_provider, vector_store, retriever = create_rag_resources()
     conversations = ConversationManager()
     history = HistoryManager(conversations)
     indexer = Indexer(
         embedding_provider=embedding_provider,
         vector_store=vector_store)
+    tool_orchestrator = create_tool_orchestrator(indexer=indexer)
     assistant = Assistant(
         llm=llm,
         history=history,
-        retriever=retriever
+        retriever=retriever,
+        tool_orchestrator=tool_orchestrator,
     )
 
     render_conversation_sidebar(history)

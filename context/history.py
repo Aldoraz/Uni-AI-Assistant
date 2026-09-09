@@ -1,6 +1,12 @@
+import logging
+
 import streamlit as st
+
 from context.conversations import ConversationManager
 from context.entities import Message
+
+logger = logging.getLogger(__name__)
+
 
 class HistoryManager:
     def __init__(self, conversations: ConversationManager):
@@ -27,6 +33,7 @@ class HistoryManager:
         if not self.conversations.conversation_exists(conversation_id):
             raise ValueError(f"Conversation with ID {conversation_id} does not exist.")
         st.session_state.active_conversation_id = conversation_id
+        logger.info("Activated conversation (id=%d)", conversation_id)
 
     def rename_conversation(self, conversation_id: int, new_title: str) -> None:
         self.conversations.rename_conversation(conversation_id, new_title)

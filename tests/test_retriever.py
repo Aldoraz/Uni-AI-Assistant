@@ -8,9 +8,10 @@ from langchain_core.documents import Document
 from config import RAG_CANDIDATE_K, RAG_MAX_DISTANCE
 from context.entities import Message
 from context.prompts import SYSTEM_PROMPT_RERANK, SYSTEM_PROMPT_REWRITE
-from llm.provider import LLMProvider
+from llm.provider import LLMProvider, LLMResponse
 from rag.retriever import Retriever
 from rag.vector_store import VectorStore
+from tools.tool import ToolDefinition
 
 
 class FakeLLM(LLMProvider):
@@ -37,6 +38,20 @@ class FakeLLM(LLMProvider):
 
     def stream_chat(self, messages: list[Message]) -> Iterator[str]:
         yield self.response
+
+    def chat_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+    ) -> LLMResponse:
+        return LLMResponse(content=self.response, tool_calls=[])
+
+    def stream_chat_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+    ) -> Iterator[LLMResponse]:
+        yield LLMResponse(content=self.response, tool_calls=[])
 
 
 class FakeVectorStore(VectorStore):
@@ -200,14 +215,22 @@ class RetrieverTests(unittest.TestCase):
         vector_store = FakeVectorStore(documents_by_id=chunks)
         retriever = Retriever(vector_store=vector_store, llm=FakeLLM())
 
-        actual = retriever._expand_context(
-            [(chunks["source::1"], 0.1), (chunks["source::2"], 0.2)],
-            radius=1,
-        )
+        with self.assertLogs("rag.retriever", level="INFO") as captured_logs:
+            actual = retriever._expand_context(
+                [(chunks["source::1"], 0.1), (chunks["source::2"], 0.2)],
+                radius=1,
+            )
 
         self.assertEqual(
             [document.metadata["chunk_id"] for document in actual],
             ["source::0", "source::1", "source::2", "source::3"],
+        )
+        self.assertTrue(
+            any(
+                "Context expanded Unknown::1 with radius 1 to ::0 - ::2"
+                in entry
+                for entry in captured_logs.output
+            )
         )
 
     def test_malformed_chunk_id_keeps_original_document(self):

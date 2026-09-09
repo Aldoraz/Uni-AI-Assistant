@@ -1,14 +1,19 @@
 import hashlib
 import json
-from pathlib import Path
-from dataclasses import dataclass
+import logging
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from embedding.provider import EmbeddingProvider
 from rag.vector_store import VectorStore
 from config import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_PROVIDER, EMBEDDING_MODEL
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class IndexingResult:
@@ -47,6 +52,7 @@ class Indexer:
         self.index_catalog = IndexCatalog()
 
     def index_folder(self, folder: Path) -> IndexingResult:
+        logger.info("Index update started (folder=%s)", folder)
         # Find all files in the folder and subfolders
         files = self._discover_files(folder)
 
@@ -55,6 +61,16 @@ class Indexer:
             for file in files
             if file.suffix.lower() in self.loader.SUPPORTED_TYPES
         ]
+        logger.info(
+            "Files discovered (count=%d): [%s]",
+            len(files),
+            ", ".join(sorted(file.name for file in files)),
+        )
+        logger.info(
+            "Supported documents (count=%d): [%s]",
+            len(supported_files),
+            ", ".join(sorted(file.name for file in supported_files)),
+        )
 
         # Check which files have changed since last indexing
         signature = json.dumps({
@@ -64,12 +80,29 @@ class Indexer:
             "embedding_model": EMBEDDING_MODEL
         }, sort_keys=True)
         changed_files, deleted_files = self.index_catalog.compare_records(supported_files, signature)
+        logger.info(
+            "Index changes: changed=[%s], deleted=[%s]",
+            ", ".join(sorted(file.name for file in changed_files)),
+            ", ".join(sorted(Path(file).name for file in deleted_files)),
+        )
 
         # Recursively find and turn all files into langchain Documents
         load_results = self.loader.load_documents(list(changed_files))
 
         # Split documents into chunks with certain overlap
         chunks = self._chunk_documents(load_results.documents)
+        chunk_counts: dict[str, int] = {}
+        for chunk in chunks:
+            source = str(chunk.metadata.get("source", "Unknown"))
+            chunk_counts[source] = chunk_counts.get(source, 0) + 1
+        logger.info(
+            "Document chunks generated (total=%d): [%s]",
+            len(chunks),
+            ", ".join(
+                f"{Path(source).name}={count}"
+                for source, count in chunk_counts.items()
+            ),
+        )
 
         # Determine which files are being indexed (for deletion of old records)
         indexed_sources = {chunk.metadata["source"] for chunk in chunks}
@@ -81,12 +114,28 @@ class Indexer:
         # Delete old and changed records from the vector store
         for file in indexed_files:
             chunk_count = self.index_catalog.get_chunk_count(str(file))
+            logger.info(
+                "Replacing document vectors (document=%s, previous_vectors=%d)",
+                file.name,
+                chunk_count,
+            )
             self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
         for file in deleted_files:
             chunk_count = self.index_catalog.get_chunk_count(file)
+            logger.info(
+                "Removing deleted document vectors (document=%s, vectors=%d)",
+                Path(file).name,
+                chunk_count,
+            )
             self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
         for file in load_results.skipped:
             chunk_count = self.index_catalog.get_chunk_count(str(file))
+            logger.info(
+                "Removing vectors for skipped document "
+                "(document=%s, vectors=%d)",
+                file.name,
+                chunk_count,
+            )
             self.vector_store.delete_by_ids([f"{file}::{i}" for i in range(chunk_count)])
 
         # Store new/updated chunks (data) and embeddings (vectors)
@@ -98,6 +147,22 @@ class Indexer:
         # Update the index catalog with skipped and failed records
         self.index_catalog.update_status_records(load_results.skipped, load_results.failed, changed_files, signature)
 
+        logger.info(
+            "Index catalog updated: succeeded=[%s], skipped=[%s], "
+            "failed=[%s], deleted=[%s]",
+            ", ".join(sorted(file.name for file in indexed_files)),
+            ", ".join(sorted(file.name for file in load_results.skipped)),
+            ", ".join(sorted(file.name for file in load_results.failed)),
+            ", ".join(sorted(Path(file).name for file in deleted_files)),
+        )
+
+        logger.info(
+            "Index update completed (loaded=%d, skipped=%d, failed=%d, vectors=%d)",
+            self.result.files_loaded,
+            self.result.files_skipped,
+            self.result.files_failed,
+            self.result.vectors_stored,
+        )
         return self.result
 
     def _discover_files(self, folder: Path) -> list[Path]:
@@ -129,12 +194,14 @@ class Indexer:
 
     def _embed_chunks(self, chunks: list[Document]) -> list[list[float]]:
         if not chunks:
+            logger.info("Embedding generation skipped: no chunks")
             return []
 
         vectors = self.embedding_provider.embed_documents(
             [chunk.page_content for chunk in chunks]
         )
         self.result.embeddings_generated = len(vectors)
+        logger.info("Embeddings generated (count=%d)", len(vectors))
         return vectors
 
     def get_index_status(self) -> list[IndexRecord]:
@@ -193,28 +260,29 @@ class DocumentLoader:
         for file in files:
             loader = self.SUPPORTED_TYPES.get(file.suffix.lower())
             if loader is None:
-                print(f"Skipping unsupported file: {file.name}")
+                logger.warning("Skipping unsupported file: %s", file.name)
                 load_results.skipped[file] = f"Unsupported file type {file.suffix.lower()}"
                 self.result.files_skipped += 1
                 continue
             try:
                 documents = loader(file)
                 if not documents:
+                    logger.warning("Skipping empty document: %s", file.name)
                     load_results.skipped[file] = "No documents produced"
                     self.result.files_skipped += 1
                     continue
                 load_results.documents.extend(documents)
                 load_results.succeeded.add(file)
-            except Exception as e:
-                print(f"Error loading file {file.name}: {e}")
-                load_results.failed[file] = str(e)
+            except Exception as error:
+                logger.error("Document loading failed (%s): %s", file.name, error)
+                load_results.failed[file] = str(error)
                 self.result.files_failed += 1
 
         self.result.documents_generated = len(load_results.documents)
         return load_results
 
     def _load_pdf(self, file: Path) -> list[Document]:
-        print(f"Loading PDF document: {file.name}")
+        logger.info("Loading PDF document: %s", file.name)
         # TODO: Visual Search
         documents = PyPDFLoader(str(file)).load()
 
@@ -225,7 +293,7 @@ class DocumentLoader:
         return documents
 
     def _load_txt(self, file: Path) -> list[Document]:
-        print(f"Loading TXT document: {file.name}")
+        logger.info("Loading TXT document: %s", file.name)
         with open(file, encoding="utf-8") as f:
             text = f.read()
         self.result.files_loaded += 1

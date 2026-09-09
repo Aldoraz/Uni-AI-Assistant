@@ -1,8 +1,11 @@
 from collections.abc import Iterator
+
 from context.entities import Message
-from llm.provider import LLMProvider
+from llm.provider import LLMProvider, LLMResponse
+from tools.tool import ToolDefinition
 
 # TODO: Implement
+
 
 class OllamaChatProvider(LLMProvider):
 
@@ -24,5 +27,19 @@ class OllamaChatProvider(LLMProvider):
     
 
     def stream_chat(self, messages: list[Message]) -> Iterator[str]:
+        ...
+
+    def chat_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+    ) -> LLMResponse:
+        ...
+
+    def stream_chat_with_tools(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+    ) -> Iterator[LLMResponse]:
         ...
 
