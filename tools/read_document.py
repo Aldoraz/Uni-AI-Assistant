@@ -27,7 +27,7 @@ class ReadDocumentTool(Tool):
         },
     )
 
-    def __init__(self, indexer: Indexer):
+    def __init__(self, indexer: Indexer) -> None:
         self.indexer = indexer
 
     def execute(self, arguments: dict[str, object]) -> ToolResult:
@@ -65,7 +65,8 @@ class ReadDocumentTool(Tool):
                 )
                 content = (
                     content[:TOOL_MAX_CONTENT_CHARS]
-                    + "\n\n[Document truncated because it exceeded the tool-output limit.]"
+                    + "\n\n[Document truncated because it exceeded the "
+                    "tool-output limit.]"
                 )
 
             return ToolResult(content=content)

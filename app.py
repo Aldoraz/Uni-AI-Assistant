@@ -2,9 +2,9 @@ import logging
 import os
 from pathlib import Path
 
+import streamlit as st
 from colorama import Fore, Style, just_fix_windows_console
 from dotenv import load_dotenv
-import streamlit as st
 
 from assistant.assistant import Assistant
 from config import (
@@ -13,19 +13,21 @@ from config import (
     DOCUMENTS_PATH,
     EMBEDDING_MODEL,
     EMBEDDING_PROVIDER,
-    WEB_SEARCH_ENABLED,
     OLLAMA_BASE_URL,
     OLLAMA_CONTEXT_WINDOW,
     OLLAMA_EMBEDDING_BATCH_SIZE,
-    OLLAMA_REASONING_ENABLED,
     OLLAMA_KEEP_ALIVE,
+    OLLAMA_REASONING_ENABLED,
+    WEB_SEARCH_ENABLED,
 )
 from context.conversations import ConversationManager
 from context.history import HistoryManager
 from embedding.ollama import OllamaEmbeddingProvider
 from embedding.openai import OpenAIEmbeddingProvider
+from embedding.provider import EmbeddingProvider
 from llm.ollama import OllamaChatProvider
 from llm.openai import OpenAIChatProvider
+from llm.provider import LLMProvider
 from rag.indexer import Indexer
 from rag.retriever import Retriever
 from rag.vector_store import VectorStore
@@ -46,7 +48,7 @@ class ColoredLevelFormatter(logging.Formatter):
         logging.CRITICAL: Fore.MAGENTA,
     }
 
-    def __init__(self, format_string: str, use_color: bool):
+    def __init__(self, format_string: str, use_color: bool) -> None:
         super().__init__(format_string)
         self.use_color = use_color
 
@@ -54,9 +56,7 @@ class ColoredLevelFormatter(logging.Formatter):
         original_levelname = record.levelname
         if self.use_color:
             color = self.LEVEL_COLORS.get(record.levelno, "")
-            record.levelname = (
-                f"{color}{original_levelname:<8}{Style.RESET_ALL}"
-            )
+            record.levelname = f"{color}{original_levelname:<8}{Style.RESET_ALL}"
         else:
             record.levelname = f"{original_levelname:<8}"
 
@@ -173,8 +173,7 @@ def render_index_status(indexer: Indexer) -> None:
                         st.error(record.error_message)
 
 
-def create_providers():
-    # Chat model selection
+def create_providers() -> tuple[LLMProvider, EmbeddingProvider]:
     if CHAT_PROVIDER == "openai":
         llm = OpenAIChatProvider(model=CHAT_MODEL)
     elif CHAT_PROVIDER == "ollama":
@@ -188,7 +187,6 @@ def create_providers():
     else:
         raise ValueError(f"Unsupported chat provider: {CHAT_PROVIDER}")
 
-    # Embedding model selection
     if EMBEDDING_PROVIDER == "openai":
         embedder = OpenAIEmbeddingProvider(model=EMBEDDING_MODEL)
     elif EMBEDDING_PROVIDER == "ollama":
@@ -211,12 +209,18 @@ def create_providers():
 
 
 @st.cache_resource
-def create_rag_resources():
+def create_rag_resources() -> tuple[
+    LLMProvider,
+    EmbeddingProvider,
+    VectorStore,
+    Retriever,
+]:
     llm, embedding_provider = create_providers()
     vector_store = VectorStore(embedding_provider)
     retriever = Retriever(vector_store=vector_store, llm=llm)
 
     return llm, embedding_provider, vector_store, retriever
+
 
 def create_tool_orchestrator(indexer: Indexer) -> ToolOrchestrator:
     tools: list[Tool] = [ReadDocumentTool(indexer)]
@@ -235,14 +239,15 @@ def create_tool_orchestrator(indexer: Indexer) -> ToolOrchestrator:
     return ToolOrchestrator(tools=tools)
 
 
-def main():
+def main() -> None:
     configure_logging()
     llm, embedding_provider, vector_store, retriever = create_rag_resources()
     conversations = ConversationManager()
     history = HistoryManager(conversations)
     indexer = Indexer(
         embedding_provider=embedding_provider,
-        vector_store=vector_store)
+        vector_store=vector_store,
+    )
     tool_orchestrator = create_tool_orchestrator(indexer=indexer)
     assistant = Assistant(
         llm=llm,
@@ -260,14 +265,12 @@ def main():
             st.markdown(message.content)
 
     if prompt := st.chat_input():
-        # Immediate feedback to the user
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            st.write_stream(
-                assistant.stream_chat(prompt)
-            )
+            st.write_stream(assistant.stream_chat(prompt))
+
 
 if __name__ == "__main__":
     main()

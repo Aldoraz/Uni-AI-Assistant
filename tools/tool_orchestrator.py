@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolOrchestrator:
-    def __init__(self, tools: list[Tool]):
+    def __init__(self, tools: list[Tool]) -> None:
         self.tools = {tool.definition.name: tool for tool in tools}
 
         if len(self.tools) != len(tools):

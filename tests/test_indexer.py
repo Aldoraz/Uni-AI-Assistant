@@ -79,6 +79,21 @@ class DocumentLoaderTests(unittest.TestCase):
         self.assertEqual(loaded.skipped, {file: "No documents produced"})
         self.assertEqual(result.files_skipped, 1)
 
+    def test_empty_text_file_is_reported_as_skipped(self):
+        result = IndexingResult()
+        loader = DocumentLoader(result)
+
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "empty.txt"
+            file.write_text("   \n", encoding="utf-8")
+
+            loaded = loader.load_documents([file])
+
+        self.assertEqual(loaded.documents, [])
+        self.assertEqual(loaded.skipped, {file: "No documents produced"})
+        self.assertEqual(result.files_loaded, 0)
+        self.assertEqual(result.files_skipped, 1)
+
 
 class IndexCatalogTests(unittest.TestCase):
     def test_successful_record_is_unchanged_until_file_changes(self):
@@ -182,6 +197,24 @@ class IndexCatalogTests(unittest.TestCase):
 
 
 class IndexerTests(unittest.TestCase):
+    @patch("rag.indexer.IndexCatalog")
+    def test_index_folder_resets_result_counters_for_each_run(self, catalog_type):
+        catalog_type.return_value.compare_records.return_value = ({}, set())
+        vector_store = Mock()
+        vector_store.store.return_value = 0
+        indexer = Indexer(Mock(), vector_store)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "unsupported.png").write_bytes(b"content")
+
+            first_result = indexer.index_folder(root)
+            second_result = indexer.index_folder(root)
+
+        self.assertIsNot(first_result, second_result)
+        self.assertEqual(first_result.files_found, 1)
+        self.assertEqual(second_result.files_found, 1)
+
     @patch("rag.indexer.IndexCatalog")
     def test_index_folder_processes_only_indexable_changed_files(self, catalog_type):
         indexed_file = Path("documents/notes.txt")

@@ -3,7 +3,7 @@ import logging
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from config import EMBEDDING_PROVIDER, EMBEDDING_MODEL, INDEX_PATH
+from config import EMBEDDING_MODEL, EMBEDDING_PROVIDER, INDEX_PATH
 from embedding.provider import EmbeddingProvider
 from rag.index_paths import get_index_directory
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class VectorStore:
-    def __init__(self, embedding_provider: EmbeddingProvider):
+    def __init__(self, embedding_provider: EmbeddingProvider) -> None:
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_provider.model
 
@@ -27,7 +27,7 @@ class VectorStore:
             self.db = FAISS.load_local(
                 str(self.index_path),
                 self.embedding_model,
-                allow_dangerous_deserialization=True
+                allow_dangerous_deserialization=True,
             )
             logger.info("Loaded vector index (vectors=%d)", self.db.index.ntotal)
         elif not faiss_path.exists() and not metadata_path.exists():
@@ -38,8 +38,6 @@ class VectorStore:
                 "Vector index files are inconsistent. Both index.faiss and "
                 "index.pkl must exist or neither."
             )
-
-
     def store(self, chunks: list[Document], embeddings: list[list[float]]) -> int:
         if not chunks:
             return 0
@@ -51,17 +49,17 @@ class VectorStore:
 
         if self.db is None:
             self.db = FAISS.from_embeddings(
-                    text_embeddings=text_embeddings,
-                    embedding=self.embedding_model,
-                    metadatas=metadatas,
-                    ids=chunk_ids
-                )
+                text_embeddings=text_embeddings,
+                embedding=self.embedding_model,
+                metadatas=metadatas,
+                ids=chunk_ids,
+            )
         else:
             self.db.add_embeddings(
                 text_embeddings=text_embeddings,
                 embedding=self.embedding_model,
                 metadatas=metadatas,
-                ids=chunk_ids
+                ids=chunk_ids,
             )
 
         self.db.save_local(str(self.index_path))
@@ -71,8 +69,6 @@ class VectorStore:
             self.db.index.ntotal,
         )
         return len(chunks)
-
-
     def search(self, query: str, k: int) -> list[tuple[Document, float]]:
         if self.db is None:
             raise ValueError("Vector store is not initialized")

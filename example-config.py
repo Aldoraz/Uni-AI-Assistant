@@ -1,69 +1,78 @@
 from pathlib import Path
 
-# ---------- Providers & Models ----------
-# What LLM provider to use for chat completions
-CHAT_PROVIDER  = "openai"
-# What model to use for chat completions
-CHAT_MODEL = "gpt-4.1"
+# ---------- Providers and models ----------
+# Supported providers are "openai" and "ollama"; chat and embeddings may use
+# different providers.
+CHAT_PROVIDER = "ollama"
+CHAT_MODEL = "qwen3:8b"
 
-# What embedding provider to use for embedding generation
-# Options: "openai", "ollama"
-EMBEDDING_PROVIDER  = "openai"
+EMBEDDING_PROVIDER = "ollama"
+EMBEDDING_MODEL = "embeddinggemma"
 
-# What model to use for embedding generation
-EMBEDDING_MODEL = "text-embedding-3-small"
-
-# ---------- Model Options ----------
-# Base URL for Ollama API
+# ---------- Ollama ----------
+# Change this only when Ollama is served from another host or port.
 OLLAMA_BASE_URL = "http://localhost:11434"
-# Context window size for Ollama chat sessions; 8192 ~ 6.2GB VRAM
+
+# Larger context windows retain more conversation and retrieved text but consume
+# more memory. Qwen3 8B used about 6.2 GB of VRAM with this tested setting.
 OLLAMA_CONTEXT_WINDOW = 8192
-# Number of document chunks sent in each local embedding request
+
+# Batching avoids overloading Ollama when indexing a large document collection.
+# Reduce this value if the embedding server rejects requests or runs out of memory.
 OLLAMA_EMBEDDING_BATCH_SIZE = 64
-# Whether to enable reasoning mode for Ollama chat sessions
+
+# Reasoning is disabled to reduce latency for the interactive assistant workflow.
 OLLAMA_REASONING_ENABLED = False
-# Keep-alive duration for Ollama chat sessions; can be a string like "15m" or "1h"
+
+# Keeping the model loaded avoids a cold start on consecutive requests.
+# Ollama accepts durations such as "15m" and "1h".
 OLLAMA_KEEP_ALIVE = "15m"
 
 # ---------- RAG ----------
 DATA_DIR = Path("data")
-
-# Path to the directory containing the documents to be indexed
 DOCUMENTS_PATH = DATA_DIR / "documents"
 
-# Alternative: absolute path to a documents directory
-#DOCUMENTS_PATH = Path("C:/path/to/your/documents")
+# Use an absolute path when documents live outside the project directory.
+# DOCUMENTS_PATH = Path("C:/path/to/your/documents")
 
-# Path to the directory where the index will be stored
+# Each embedding provider/model combination receives its own subdirectory here,
+# preventing incompatible vectors from being loaded together.
 INDEX_PATH = DATA_DIR / "index"
 
-# Chunking parameters for document splitting
+# Overlap preserves context across chunk boundaries at the cost of more vectors.
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
-# How many relevant chunks to return in rag context search
+# Retrieve a broad candidate set before the LLM reranks it.
 RAG_CANDIDATE_K = 15
-# How many relevant chunks to use in the final context for the LLM
+
+# This limits the seed chunks selected by reranking. Context expansion may make
+# the final document list larger.
 RAG_TOP_K = 5
-# How many additional relevant chunks to include in the context expansion
+
+# Neighboring chunks restore context that may have been split at chunk boundaries.
 RAG_EXPANSION_RADIUS = 1
-# Maximum FAISS distance accepted for retrieval; lower is more similar
+
+# FAISS returns distance rather than similarity, so lower values are stricter.
 RAG_MAX_DISTANCE = 1.2
 
-# ---------- CONTEXT ----------
-# Number of messages to keep in context for the LLM
+# ---------- Conversation context ----------
+# Answer generation benefits from broader history than retrieval rewriting.
 LLM_CONTEXT_SIZE = 15
-# Number of messages to keep in context for RAG retrieval
 RAG_CONTEXT_SIZE = 3
 
-# ---------- TOOLS ----------
-# Whether to expose the external Tavily web-search tool
+# ---------- Tools ----------
+# Web search is opt-in because queries leave the local system and require Tavily.
 WEB_SEARCH_ENABLED = False
-# Maximum number of characters to include in the content returned by tools
+
+# Cap tool output so a full document or search result cannot overwhelm the model
+# context window.
 TOOL_MAX_CONTENT_CHARS = 50_000
-# Maximum number of web search results to return
 WEB_SEARCH_MAX_RESULTS = 5
-# Depth of web search; can be "basic" or "advanced"
+
+# Tavily supports "basic" and "advanced"; advanced search is slower and may use
+# more API credits.
 WEB_SEARCH_DEPTH = "basic"
-# Maximum number of tool calls allowed per user request
+
+# The limit prevents a model from entering an unbounded tool-calling loop.
 MAX_TOOL_CALLS = 5

@@ -23,9 +23,9 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
-            batch = texts[start:start + self.batch_size]
+            batch = texts[start : start + self.batch_size]
             vectors.extend(self.model.embed_documents(batch))
         return vectors
-        
+
     def embed_query(self, text: str) -> list[float]:
         return self.model.embed_query(text)

@@ -154,6 +154,23 @@ class AssistantTests(unittest.TestCase):
         self.assertNotIn("Similarity Score", context)
         self.assertIn("Relevant passage.", context)
 
+    def test_format_context_handles_documents_without_page_metadata(self):
+        assistant = Assistant(
+            llm=FakeLLM(),
+            history=FakeHistory([]),
+            retriever=FakeRetriever(),
+            tool_orchestrator=ToolOrchestrator([]),
+        )
+        document = Document(
+            page_content="Text document content.",
+            metadata={"filename": "notes.txt"},
+        )
+
+        context = assistant._format_context([document])
+
+        self.assertIn("Source: notes.txt", context)
+        self.assertIn("Page: ?", context)
+
     def test_prompt_dump_includes_messages_tools_and_tool_calls(self):
         assistant = Assistant(
             llm=FakeLLM(),

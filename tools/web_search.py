@@ -29,7 +29,7 @@ class WebSearchTool(Tool):
         },
     )
 
-    def __init__(self):
+    def __init__(self) -> None:
         load_dotenv()
         self.client = TavilyClient()
 

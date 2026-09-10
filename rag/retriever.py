@@ -98,7 +98,7 @@ def _format_scored_documents(
 
 
 class Retriever:
-    def __init__(self, vector_store: VectorStore, llm: LLMProvider):
+    def __init__(self, vector_store: VectorStore, llm: LLMProvider) -> None:
         self.vector_store = vector_store
         self.llm = llm
 
@@ -165,7 +165,9 @@ class Retriever:
             return query
 
         if not rewritten_query:
-            logger.warning("Query rewriting returned blank output; using original query")
+            logger.warning(
+                "Query rewriting returned blank output; using original query"
+            )
         else:
             logger.info("Query rewritten to: %r", rewritten_query)
 

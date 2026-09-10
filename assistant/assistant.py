@@ -23,19 +23,17 @@ class Assistant:
         history: HistoryManager,
         retriever: Retriever,
         tool_orchestrator: ToolOrchestrator,
-    ):
+    ) -> None:
         self.llm = llm
         self.history = history
         self.retriever = retriever
         self.tool_orchestrator = tool_orchestrator
 
-    # For internal use like summarization
     def chat(self, messages: list[Message]) -> str:
         return self.llm.chat(messages)
 
-    # For streaming responses to the UI
     def stream_chat(self, prompt: str) -> Iterator[str]:
-        # RAG first before any changes in history
+        # Retrieval must see prior history without duplicating the current prompt.
         history = self.history.get_messages(limit=RAG_CONTEXT_SIZE)
         documents = self.retriever.retrieve(prompt, history)
         logger.info(
@@ -44,11 +42,8 @@ class Assistant:
             len(documents),
         )
 
-        self.history.add_message(
-            Message(role="user", content=prompt)
-        )
+        self.history.add_message(Message(role="user", content=prompt))
 
-        # Build full context for initial prompt to LLM
         messages = [
             Message(role="system", content=SYSTEM_PROMPT_MAIN),
             Message(role="system", content=SYSTEM_PROMPT_TOOLS),
@@ -56,7 +51,6 @@ class Assistant:
             *self.history.get_messages(limit=LLM_CONTEXT_SIZE),
         ]
 
-        # Main harness loop for tool calls and LLM responses
         tool_definitions = self.tool_orchestrator.get_definitions()
         tool_uses = 0
         while tool_uses < MAX_TOOL_CALLS:
@@ -74,18 +68,14 @@ class Assistant:
 
                 tool_calls.extend(event.tool_calls)
 
-            # Final model response
             if not tool_calls:
-                self.history.add_message(
-                    Message(role="assistant", content=completion)
-                )
+                self.history.add_message(Message(role="assistant", content=completion))
                 logger.info(
                     "Assistant turn completed (tools_used=%d)",
                     tool_uses,
                 )
                 return
 
-            # Tool Call
             messages.append(
                 Message(
                     role="assistant",
@@ -129,11 +119,9 @@ class Assistant:
         self._dump_messages(messages, [])
         for chunk in self.llm.stream_chat(messages):
             completion += chunk
-            yield chunk  # Yield each chunk to the UI
+            yield chunk
 
-        self.history.add_message(
-            Message(role="assistant", content=completion)
-        )
+        self.history.add_message(Message(role="assistant", content=completion))
         logger.info(
             "Assistant turn completed after tool limit (tools_used=%d)",
             tool_uses,
@@ -153,9 +141,12 @@ class Assistant:
         ]
 
         for i, document in enumerate(documents, start=1):
+            page = document.metadata.get("page")
+            page_label = page + 1 if isinstance(page, int) else "?"
+
             context.append(f"--- Document {i} ---")
             context.append(f"Source: {document.metadata.get('filename', 'Unknown')}")
-            context.append(f"Page: {document.metadata.get('page', '?') + 1}")
+            context.append(f"Page: {page_label}")
             context.append("")
             context.append(document.page_content.strip())
             context.append("")
@@ -193,10 +184,12 @@ class Assistant:
                 for tool_call in message.tool_calls:
                     file.write(f"Tool call: {tool_call.name}\n")
                     file.write(f"Tool call ID: {tool_call.id}\n")
-                    file.write(
-                        "Arguments: "
-                        f"{json.dumps(tool_call.arguments, ensure_ascii=False, default=str)}\n"
+                    arguments = json.dumps(
+                        tool_call.arguments,
+                        ensure_ascii=False,
+                        default=str,
                     )
+                    file.write(f"Arguments: {arguments}\n")
 
                 file.write(message.content)
                 file.write("\n\n")

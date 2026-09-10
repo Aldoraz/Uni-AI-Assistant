@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, model: str):
+    def __init__(self, model: str) -> None:
         load_dotenv()
         self.model = OpenAIEmbeddings(model=model)
         logger.info("Initialized OpenAI embedding provider (model=%s)", model)

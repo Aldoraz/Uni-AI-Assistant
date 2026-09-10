@@ -19,8 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIChatProvider(LLMProvider):
-
-    def __init__(self, model):
+    def __init__(self, model: str) -> None:
         load_dotenv()
 
         self.model = ChatOpenAI(model=model)
@@ -80,16 +79,12 @@ class OpenAIChatProvider(LLMProvider):
 
     def chat(self, messages: list[Message]) -> str:
         logger.debug("Sending OpenAI chat request (messages=%d)", len(messages))
-        response = self.model.invoke(
-            self._to_langchain_messages(messages)
-        )
+        response = self.model.invoke(self._to_langchain_messages(messages))
         return str(response.content)
 
     def stream_chat(self, messages: list[Message]) -> Iterator[str]:
         logger.debug("Streaming OpenAI chat request (messages=%d)", len(messages))
-        stream = self.model.stream(
-            self._to_langchain_messages(messages)
-        )
+        stream = self.model.stream(self._to_langchain_messages(messages))
 
         for chunk in stream:
             if chunk.content:
@@ -105,15 +100,13 @@ class OpenAIChatProvider(LLMProvider):
             len(messages),
             len(tools),
         )
-        model_w_tools = self.model.bind_tools(
+        model_with_tools = self.model.bind_tools(
             self._to_langchain_tools(tools),
             strict=True,
             parallel_tool_calls=False,
         )
 
-        response = model_w_tools.invoke(
-            self._to_langchain_messages(messages)
-        )
+        response = model_with_tools.invoke(self._to_langchain_messages(messages))
 
         tool_calls = [
             ToolCall(
@@ -139,22 +132,23 @@ class OpenAIChatProvider(LLMProvider):
             len(messages),
             len(tools),
         )
-        model_w_tools = self.model.bind_tools(
+        model_with_tools = self.model.bind_tools(
             self._to_langchain_tools(tools),
             strict=True,
             parallel_tool_calls=False,
         )
 
         gathered = None
-        for chunk in model_w_tools.stream(
-            self._to_langchain_messages(messages)
-        ):
+        for chunk in model_with_tools.stream(self._to_langchain_messages(messages)):
             gathered = chunk if gathered is None else gathered + chunk
 
             if chunk.content:
                 yield LLMResponse(content=str(chunk.content), tool_calls=[])
 
-        if gathered is None or not gathered.tool_calls: # pyright: ignore[reportAttributeAccessIssue]
+        if (
+            gathered is None
+            or not gathered.tool_calls  # pyright: ignore[reportAttributeAccessIssue]
+        ):
             return
 
         yield LLMResponse(
@@ -165,7 +159,8 @@ class OpenAIChatProvider(LLMProvider):
                     name=call["name"],
                     arguments=call["args"],
                 )
-                for call in gathered.tool_calls # pyright: ignore[reportAttributeAccessIssue]
+                # The accumulated chunk exposes tool_calls at runtime, but its
+                # inferred LangChain union type does not declare that attribute.
+                for call in gathered.tool_calls  # pyright: ignore[reportAttributeAccessIssue]
             ],
         )
-
